@@ -24,6 +24,7 @@ import {
   Aperture,
   Navigation,
   Star,
+  Image,
 } from 'lucide-react';
 
 import useTravelStore from './store/useTravelStore';
@@ -66,6 +67,7 @@ function App() {
     generatePhotoChallenges,
     getDayTips,
     generateDiary,
+    generatePoster,
   } = useAiFeature();
 
   // 自动滚动到底部
@@ -219,10 +221,12 @@ function App() {
                   <FeatureButton icon={Globe} label="文化" color="cyan" onClick={() => generateCulture()} />
                   <FeatureButton icon={ShoppingBag} label="好物" color="pink" onClick={() => generateSouvenirs()} />
                   <FeatureButton icon={Aperture} label="挑战" color="indigo" onClick={() => generatePhotoChallenges()} />
+                  <FeatureButton icon={Image} label="海报" color="purple" onClick={() => generatePoster()} />
                 </div>
 
                 {/* Mobile */}
                 <div className="xl:hidden flex items-center gap-2">
+                  <IconButton icon={Image} color="purple" onClick={() => generatePoster()} />
                   <IconButton icon={Aperture} color="indigo" onClick={() => generatePhotoChallenges()} />
                   <IconButton icon={ShoppingBag} color="pink" onClick={() => generateSouvenirs()} />
                   <IconButton icon={Globe} color="cyan" onClick={() => generateCulture()} />

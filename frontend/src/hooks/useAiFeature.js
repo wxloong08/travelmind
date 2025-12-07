@@ -252,6 +252,70 @@ export function useAiFeature() {
   }, [destination]);
 
   /**
+   * Vlog 脚本生成
+   */
+  const generateVlogScript = useCallback(async (day) => {
+    openModal('vlog', `🎬 ${day.title} - Vlog 脚本`);
+
+    try {
+      const activities = day.activities.map((a) => a.title);
+      const result = await assistantsApi.getVlogScript(
+        destination,
+        day.day,
+        day.title,
+        activities
+      );
+      setModalContent(result);
+    } catch (error) {
+      console.error('Vlog script generation failed:', error);
+      setModalContent({ error: 'Vlog 脚本生成失败，请重试' });
+    }
+  }, [destination]);
+
+  /**
+   * 摄影指导
+   */
+  const generatePhotoGuide = useCallback(async (placeName) => {
+    openModal('photo_guide', `📸 ${placeName} - 摄影指导`);
+
+    try {
+      const result = await assistantsApi.getPhotoGuide(destination, placeName);
+      setModalContent(result);
+    } catch (error) {
+      console.error('Photo guide generation failed:', error);
+      setModalContent({ error: '摄影指导生成失败，请重试' });
+    }
+  }, [destination]);
+
+  /**
+   * 分享海报
+   */
+  const generatePoster = useCallback(async (forceRefresh = false) => {
+    openModal('poster', '🖼️ 分享海报');
+
+    if (!forceRefresh && cache.poster) {
+      setModalContent(cache.poster);
+      return;
+    }
+
+    try {
+      const activities = itinerary?.flatMap((day) =>
+        day.activities.map((act) => act.title)
+      ) || [];
+      const result = await assistantsApi.getPosterData(
+        destination,
+        tripDays,
+        activities
+      );
+      setCache('poster', result);
+      setModalContent(result);
+    } catch (error) {
+      console.error('Poster data generation failed:', error);
+      setModalContent({ error: '海报数据生成失败，请重试' });
+    }
+  }, [destination, tripDays, itinerary, cache.poster]);
+
+  /**
    * 重新生成当前 Modal 内容
    */
   const regenerate = useCallback((modalType, context) => {
@@ -280,6 +344,13 @@ export function useAiFeature() {
           return generateDiary(context.day);
         }
         break;
+      case 'vlog':
+        if (context?.day) {
+          return generateVlogScript(context.day);
+        }
+        break;
+      case 'poster':
+        return generatePoster(true);
     }
   }, [
     estimateBudget,
@@ -291,6 +362,8 @@ export function useAiFeature() {
     generatePhotoChallenges,
     getDayTips,
     generateDiary,
+    generateVlogScript,
+    generatePoster,
   ]);
 
   return {
@@ -303,8 +376,12 @@ export function useAiFeature() {
     generatePhotoChallenges,
     getDayTips,
     generateDiary,
+    generateVlogScript,
+    generatePhotoGuide,
+    generatePoster,
     regenerate,
   };
 }
 
 export default useAiFeature;
+

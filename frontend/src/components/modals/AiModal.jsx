@@ -19,6 +19,9 @@ import {
   Sparkles,
   Feather,
   Lightbulb,
+  Video,
+  Camera,
+  Image,
 } from 'lucide-react';
 import useTravelStore from '../../store/useTravelStore';
 import { useAiFeature } from '../../hooks';
@@ -33,6 +36,9 @@ import SouvenirGuide from '../features/SouvenirGuide';
 import PhotoChallenge from '../features/PhotoChallenge';
 import TipsCard from '../features/TipsCard';
 import DiaryCard from '../features/DiaryCard';
+import VlogScriptView from '../features/VlogScriptView';
+import PosterView from '../features/PosterView';
+import PhotoGuideView from '../features/PhotoGuideView';
 
 // Modal 类型配置
 const modalConfig = {
@@ -45,6 +51,9 @@ const modalConfig = {
   photo_challenge: { icon: Aperture, color: 'indigo' },
   tips: { icon: Lightbulb, color: 'yellow' },
   diary: { icon: Feather, color: 'pink' },
+  vlog: { icon: Video, color: 'purple' },
+  poster: { icon: Image, color: 'indigo' },
+  photo_guide: { icon: Camera, color: 'pink' },
 };
 
 export function AiModal() {
@@ -98,6 +107,12 @@ export function AiModal() {
         return <TipsCard data={content} />;
       case 'diary':
         return <DiaryCard data={content} />;
+      case 'vlog':
+        return <VlogScriptView data={content} />;
+      case 'poster':
+        return <PosterView data={content} />;
+      case 'photo_guide':
+        return <PhotoGuideView data={content} />;
       default:
         return (
           <div className="text-gray-300">
