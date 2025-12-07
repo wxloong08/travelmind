@@ -560,51 +560,73 @@ export function ActivityDetailModal() {
               </div>
             )}
 
-            {/* 房型 Tab */}
+            {/* 房型 Tab - 跳转 OTA 预订 */}
             {activeTab === 'rooms' && isHotel && (
-              <div className="space-y-4">
-                {[
-                  { name: '标准大床房', price: '¥388', features: ['25㎡', '大床', '市景'] },
-                  { name: '豪华双床房', price: '¥488', features: ['35㎡', '双床', '江景'] },
-                  { name: '行政套房', price: '¥888', features: ['60㎡', '客厅', '行政礼遇'] },
-                ].map((room, i) => (
-                  <div
-                    key={i}
-                    className="bg-white/5 border border-white/10 rounded-xl p-4 flex gap-4 hover:border-blue-500/30 transition-colors"
+              <div className="space-y-6">
+                {/* 提示信息 */}
+                <div className="bg-blue-900/20 border border-blue-500/20 rounded-xl p-4 text-center">
+                  <p className="text-blue-300 text-sm mb-1">🏨 点击下方平台查看真实房型和价格</p>
+                  <p className="text-gray-500 text-xs">跳转至第三方平台预订，享受更多优惠</p>
+                </div>
+
+                {/* OTA 跳转按钮 */}
+                <div className="space-y-3">
+                  {/* 携程 */}
+                  <a
+                    href={`https://hotels.ctrip.com/hotels/list?keyword=${encodeURIComponent(activity.title)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center justify-between bg-gradient-to-r from-blue-600/20 to-blue-500/10 border border-blue-500/30 rounded-xl p-4 hover:from-blue-600/30 hover:to-blue-500/20 transition-all group"
                   >
-                    <div className="w-24 h-24 rounded-lg overflow-hidden bg-gray-800 flex-shrink-0">
-                      <img
-                        src={`https://source.unsplash.com/200x200/?hotel,room,${i}`}
-                        className="w-full h-full object-cover"
-                        alt={room.name}
-                      />
-                    </div>
-                    <div className="flex-1">
-                      <h4 className="text-white font-semibold mb-2">{room.name}</h4>
-                      <div className="flex gap-2 mb-3">
-                        {room.features.map((f, j) => (
-                          <span
-                            key={j}
-                            className="text-xs bg-white/10 text-gray-300 px-2 py-1 rounded"
-                          >
-                            {f}
-                          </span>
-                        ))}
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <div className="text-blue-400 font-bold text-lg">
-                          {room.price}
-                          <span className="text-xs text-gray-500 font-normal">
-                            /晚
-                          </span>
-                        </div>
-                        <button className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm transition-colors">
-                          预订
-                        </button>
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold">携</div>
+                      <div>
+                        <div className="text-white font-semibold">携程旅行</div>
+                        <div className="text-xs text-gray-400">国内领先 · 价格保障</div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                    <div className="text-blue-400 group-hover:translate-x-1 transition-transform">→</div>
+                  </a>
+
+                  {/* 美团 */}
+                  <a
+                    href={`https://hotel.meituan.com/search/?keyword=${encodeURIComponent(activity.title)}&cityName=${encodeURIComponent(destination || '')}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center justify-between bg-gradient-to-r from-yellow-600/20 to-yellow-500/10 border border-yellow-500/30 rounded-xl p-4 hover:from-yellow-600/30 hover:to-yellow-500/20 transition-all group"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-yellow-500 rounded-lg flex items-center justify-center text-white font-bold">美</div>
+                      <div>
+                        <div className="text-white font-semibold">美团酒店</div>
+                        <div className="text-xs text-gray-400">本地生活 · 超值优惠</div>
+                      </div>
+                    </div>
+                    <div className="text-yellow-400 group-hover:translate-x-1 transition-transform">→</div>
+                  </a>
+
+                  {/* 飞猪 */}
+                  <a
+                    href={`https://hotel.fliggy.com/hotel/searchresult/?searchText=${encodeURIComponent(activity.title)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center justify-between bg-gradient-to-r from-orange-600/20 to-orange-500/10 border border-orange-500/30 rounded-xl p-4 hover:from-orange-600/30 hover:to-orange-500/20 transition-all group"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-orange-500 rounded-lg flex items-center justify-center text-white font-bold">飞</div>
+                      <div>
+                        <div className="text-white font-semibold">飞猪旅行</div>
+                        <div className="text-xs text-gray-400">阿里出品 · 信用出行</div>
+                      </div>
+                    </div>
+                    <div className="text-orange-400 group-hover:translate-x-1 transition-transform">→</div>
+                  </a>
+                </div>
+
+                {/* 温馨提示 */}
+                <p className="text-center text-xs text-gray-500">
+                  💡 建议比较多个平台价格，选择最优惠的预订
+                </p>
               </div>
             )}
           </div>
