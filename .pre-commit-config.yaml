@@ -1,0 +1,62 @@
+# ============================================================
+# Pre-commit 配置
+# 
+# 安装: pre-commit install
+# 手动运行: pre-commit run --all-files
+# ============================================================
+
+repos:
+  # 通用检查
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-toml
+      - id: check-added-large-files
+        args: ['--maxkb=1000']
+      - id: check-merge-conflict
+      - id: detect-private-key
+
+  # Ruff - 代码格式化和 lint
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.7.0
+    hooks:
+      # 代码格式化
+      - id: ruff-format
+        types_or: [python, pyi]
+      # Lint 检查
+      - id: ruff
+        types_or: [python, pyi]
+        args: [--fix]
+
+  # MyPy - 类型检查
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.13.0
+    hooks:
+      - id: mypy
+        additional_dependencies:
+          - pydantic>=2.0
+          - types-redis
+        args: [--ignore-missing-imports]
+        exclude: ^tests/
+
+  # Commitizen - 规范化提交信息
+  - repo: https://github.com/commitizen-tools/commitizen
+    rev: v3.30.0
+    hooks:
+      - id: commitizen
+        stages: [commit-msg]
+
+# CI 环境设置
+ci:
+  autofix_commit_msg: |
+    [pre-commit.ci] auto fixes from pre-commit hooks
+  autofix_prs: true
+  autoupdate_branch: ''
+  autoupdate_commit_msg: '[pre-commit.ci] pre-commit autoupdate'
+  autoupdate_schedule: weekly
+  skip: [mypy]  # CI 中跳过 mypy（太慢）
+  submodules: false

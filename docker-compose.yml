@@ -1,0 +1,115 @@
+# ============================================================
+# TravelMind Docker Compose 配置
+# 
+# 使用方法:
+#   docker-compose up -d              # 启动所有服务
+#   docker-compose up -d --build      # 重新构建并启动
+#   docker-compose logs -f            # 查看日志
+#   docker-compose down               # 停止服务
+# ============================================================
+
+services:
+  # ============================================================
+  # TravelMind API
+  # ============================================================
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: travelmind
+    restart: unless-stopped
+    ports:
+      - "${API_PORT:-8000}:8000"
+    environment:
+      # 基础配置
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - DEBUG=${DEBUG:-true}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      
+      # LLM 配置【必须】
+      - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY}
+      - LLM_MODEL=${LLM_MODEL:-qwen-turbo}
+      
+      # 外部 API【推荐】
+      - AMAP_API_KEY=${AMAP_API_KEY:-}
+      - BOCHA_API_KEY=${BOCHA_API_KEY:-}
+      
+      # 向量数据库
+      - CHROMA_PERSIST_DIR=/app/data/chroma
+      
+      # Langfuse - 连接到同网络的 langfuse 服务
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      - LANGFUSE_HOST=http://langfuse:3000
+    volumes:
+      - travelmind_data:/app/data
+    networks:
+      - travelmind-network
+    depends_on:
+      langfuse:
+        condition: service_started  # 不等待 langfuse 健康检查，加快启动速度
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ============================================================
+  # Langfuse 可观测性平台（可选）
+  # ============================================================
+  langfuse:
+    image: langfuse/langfuse:2
+    container_name: travelmind-langfuse
+    restart: unless-stopped
+    ports:
+      - "${LANGFUSE_PORT:-3000}:3000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@langfuse-db:5432/langfuse
+      - NEXTAUTH_SECRET=${LANGFUSE_NEXTAUTH_SECRET:-travelmind-secret-min-32-chars-here}
+      - NEXTAUTH_URL=http://localhost:3000
+      - SALT=${LANGFUSE_SALT:-travelmind-salt-min-32-characters}
+      - TELEMETRY_ENABLED=false
+    networks:
+      - travelmind-network
+    depends_on:
+      langfuse-db:
+        condition: service_healthy
+    healthcheck:
+      # 使用 wget 代替 curl（Langfuse 容器中没有 curl）
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/api/public/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # ============================================================
+  # Langfuse PostgreSQL 数据库
+  # ============================================================
+  langfuse-db:
+    image: postgres:15-alpine
+    container_name: travelmind-langfuse-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=langfuse
+    volumes:
+      - langfuse_db_data:/var/lib/postgresql/data
+    networks:
+      - travelmind-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  travelmind-network:
+    driver: bridge
+
+volumes:
+  travelmind_data:
+    driver: local
+  langfuse_db_data:
+    driver: local
