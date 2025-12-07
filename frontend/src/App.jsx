@@ -303,55 +303,116 @@ function App() {
           {activeTab === 'pois' && (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-6">
               {pois.length > 0 ? (
-                pois.map((poi, idx) => (
-                  <div
-                    key={idx}
-                    className="group relative overflow-hidden rounded-2xl bg-gray-800 border border-white/10 shadow-xl hover:shadow-2xl hover:shadow-blue-500/10 transition-all duration-300 flex flex-col"
-                  >
-                    <div className="h-32 bg-gray-700 relative overflow-hidden">
-                      <img
-                        src={
-                          poi.photos?.[0] ||  // 优先使用高德 API 图片
-                          poi.image ||
-                          `https://source.unsplash.com/600x400/?hotel,${encodeURIComponent(poi.name || 'travel')}`
-                        }
-                        onError={(e) => {
-                          e.target.src =
-                            'https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=600&q=80';
-                        }}
-                        alt={poi.name}
-                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-                      />
-                      <div className="absolute top-2 right-2 bg-black/60 backdrop-blur-sm px-2 py-1 rounded-lg flex items-center gap-1 text-xs font-bold text-yellow-400">
-                        <Star size={12} fill="currentColor" /> {poi.rating || '4.5'}
-                      </div>
-                    </div>
-                    <div className="p-4 flex-1 flex flex-col">
-                      <h3 className="font-bold text-white truncate">{poi.name}</h3>
-                      <div className="flex items-center justify-between mt-2 mb-3">
-                        <span className="text-blue-400 font-mono font-bold">
-                          {poi.price || '暂无报价'}
-                        </span>
-                        <div className="flex gap-1 flex-wrap justify-end">
-                          {poi.tags?.map((tag, i) => (
-                            <span
-                              key={i}
-                              className="text-[10px] bg-white/10 text-gray-300 px-1.5 py-0.5 rounded"
-                            >
-                              {tag}
-                            </span>
-                          ))}
+                pois.map((poi, idx) => {
+                  // 判断是否为真正的酒店
+                  const poiType = (poi.type || '').toLowerCase();
+                  const poiTags = (poi.tags || []).join(' ').toLowerCase();
+                  const isHotel = poiType.includes('酒店') || poiType.includes('宾馆') ||
+                    poiTags.includes('酒店') || poiTags.includes('住宿');
+                  const isRestaurant = poiType.includes('餐') || poiType.includes('饭店') ||
+                    poiTags.includes('餐饮') || poiTags.includes('美食');
+
+                  // 跳转函数
+                  const openExternal = (platform) => {
+                    const query = encodeURIComponent(`${poi.name} ${destination}`);
+                    let url = '';
+                    if (platform === 'amap') url = `https://m.amap.com/search/mapview/keywords=${query}`;
+                    if (platform === 'douyin') url = `https://www.douyin.com/search/${query}`;
+                    if (platform === 'xiaohongshu') url = `https://www.xiaohongshu.com/search_result?keyword=${query}`;
+                    if (platform === 'ctrip') url = `https://hotels.ctrip.com/hotels/list?countryId=1&city=${destination}&keyword=${encodeURIComponent(poi.name)}`;
+                    if (platform === 'meituan') url = `https://i.meituan.com/awp/h5/hotel/search.html?q=${query}`;
+                    window.open(url, '_blank');
+                  };
+
+                  return (
+                    <div
+                      key={idx}
+                      className="group relative overflow-hidden rounded-2xl bg-gray-800 border border-white/10 shadow-xl hover:shadow-2xl hover:shadow-blue-500/10 transition-all duration-300 flex flex-col"
+                    >
+                      <div className="h-32 bg-gray-700 relative overflow-hidden">
+                        <img
+                          src={
+                            poi.photos?.[0] ||
+                            poi.image ||
+                            `https://source.unsplash.com/600x400/?hotel,${encodeURIComponent(poi.name || 'travel')}`
+                          }
+                          onError={(e) => {
+                            e.target.src =
+                              'https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=600&q=80';
+                          }}
+                          alt={poi.name}
+                          className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                        />
+                        <div className="absolute top-2 right-2 bg-black/60 backdrop-blur-sm px-2 py-1 rounded-lg flex items-center gap-1 text-xs font-bold text-yellow-400">
+                          <Star size={12} fill="currentColor" /> {poi.rating || '4.5'}
                         </div>
+                        {/* 类型标签 */}
+                        {isRestaurant && (
+                          <div className="absolute top-2 left-2 bg-orange-500/80 backdrop-blur-sm px-2 py-0.5 rounded text-[10px] font-bold text-white">
+                            餐饮
+                          </div>
+                        )}
                       </div>
-                      <button
-                        onClick={() => handlePoiClick(idx, poi)}
-                        className="w-full mt-auto bg-white/5 hover:bg-blue-600 hover:text-white text-gray-300 py-2 rounded-lg text-xs font-medium transition-colors border border-white/10"
-                      >
-                        查看详情
-                      </button>
+                      <div className="p-4 flex-1 flex flex-col">
+                        <h3 className="font-bold text-white truncate">{poi.name}</h3>
+                        <div className="flex items-center justify-between mt-2 mb-3">
+                          <span className="text-blue-400 font-mono font-bold">
+                            {poi.price || '暂无报价'}
+                          </span>
+                          <div className="flex gap-1 flex-wrap justify-end">
+                            {poi.tags?.slice(0, 2).map((tag, i) => (
+                              <span
+                                key={i}
+                                className="text-[10px] bg-white/10 text-gray-300 px-1.5 py-0.5 rounded"
+                              >
+                                {tag}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* 根据类型显示不同的跳转按钮 */}
+                        {isHotel && !isRestaurant ? (
+                          <div className="flex gap-2 mt-auto">
+                            <button
+                              onClick={() => openExternal('ctrip')}
+                              className="flex-1 bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white py-2 rounded-lg text-[10px] font-medium transition-colors border border-blue-500/30"
+                            >
+                              携程
+                            </button>
+                            <button
+                              onClick={() => openExternal('meituan')}
+                              className="flex-1 bg-yellow-600/20 hover:bg-yellow-600 text-yellow-400 hover:text-white py-2 rounded-lg text-[10px] font-medium transition-colors border border-yellow-500/30"
+                            >
+                              美团
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex gap-2 mt-auto">
+                            <button
+                              onClick={() => openExternal('amap')}
+                              className="flex-1 bg-green-600/20 hover:bg-green-600 text-green-400 hover:text-white py-2 rounded-lg text-[10px] font-medium transition-colors border border-green-500/30"
+                            >
+                              高德
+                            </button>
+                            <button
+                              onClick={() => openExternal('douyin')}
+                              className="flex-1 bg-pink-600/20 hover:bg-pink-600 text-pink-400 hover:text-white py-2 rounded-lg text-[10px] font-medium transition-colors border border-pink-500/30"
+                            >
+                              抖音
+                            </button>
+                            <button
+                              onClick={() => openExternal('xiaohongshu')}
+                              className="flex-1 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white py-2 rounded-lg text-[10px] font-medium transition-colors border border-red-500/30"
+                            >
+                              小红书
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))
+                  );
+                })
               ) : (
                 <div className="col-span-3 text-center text-gray-500 py-10">
                   <Hotel size={48} className="mx-auto mb-4 opacity-20" />
