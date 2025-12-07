@@ -12,6 +12,7 @@ import {
   Lightbulb,
   Feather,
   Sparkles,
+  Video,
 } from 'lucide-react';
 import useTravelStore from '../../store/useTravelStore';
 import { useAiFeature } from '../../hooks';
@@ -26,7 +27,7 @@ const typeIcons = {
 
 export function ItineraryTimeline() {
   const { itinerary, openDetailModal } = useTravelStore();
-  const { getDayTips, generateDiary } = useAiFeature();
+  const { getDayTips, generateDiary, generateVlogScript } = useAiFeature();
 
   // 空状态
   if (!itinerary || itinerary.length === 0) {
@@ -69,6 +70,14 @@ export function ItineraryTimeline() {
 
             {/* 功能按钮 */}
             <div className="flex gap-2">
+              <button
+                onClick={() => generateVlogScript(day)}
+                className="group flex items-center gap-1.5 px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg transition-all text-xs font-medium text-gray-300 hover:text-white"
+                title="生成 Vlog 脚本"
+              >
+                <Video size={14} className="text-purple-400" />
+                <span>脚本</span>
+              </button>
               <button
                 onClick={() => generateDiary(day)}
                 className="group flex items-center gap-1.5 px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg transition-all text-xs font-medium text-gray-300 hover:text-white"
