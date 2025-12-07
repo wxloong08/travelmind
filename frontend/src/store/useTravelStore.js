@@ -17,19 +17,19 @@ export const useTravelStore = create(
         // ============================================================
         // 基础状态
         // ============================================================
-        
+
         // 目的地
         destination: '未知目的地',
         setDestination: (destination) => set({ destination }),
-        
+
         // 旅行状态
         tripStatus: 'Planning', // Planning | Created
         setTripStatus: (status) => set({ tripStatus: status }),
-        
+
         // 天气信息
         weather: { temp: '--', condition: '未知' },
         setWeather: (weather) => set({ weather }),
-        
+
         // 旅行天数
         tripDays: 3,
         setTripDays: (days) => set({ tripDays: days }),
@@ -37,7 +37,7 @@ export const useTravelStore = create(
         // ============================================================
         // 聊天状态
         // ============================================================
-        
+
         messages: [
           {
             role: 'ai',
@@ -47,11 +47,11 @@ export const useTravelStore = create(
         ],
         sessionId: null,
         isTyping: false,
-        
+
         addMessage: (message) => set((state) => ({
           messages: [...state.messages, message],
         })),
-        
+
         updateLastMessage: (updates) => set((state) => {
           const messages = [...state.messages];
           const lastIndex = messages.length - 1;
@@ -60,7 +60,7 @@ export const useTravelStore = create(
           }
           return { messages };
         }),
-        
+
         appendToLastMessage: (text) => set((state) => {
           const messages = [...state.messages];
           const lastIndex = messages.length - 1;
@@ -72,10 +72,10 @@ export const useTravelStore = create(
           }
           return { messages };
         }),
-        
+
         setSessionId: (sessionId) => set({ sessionId }),
         setIsTyping: (isTyping) => set({ isTyping }),
-        
+
         clearChat: () => set({
           messages: [
             {
@@ -90,10 +90,10 @@ export const useTravelStore = create(
         // ============================================================
         // 行程数据
         // ============================================================
-        
+
         itinerary: [],
         setItinerary: (itinerary) => set({ itinerary }),
-        
+
         updateDayTips: (dayIndex, tips) => set((state) => {
           const itinerary = [...state.itinerary];
           if (itinerary[dayIndex]) {
@@ -101,7 +101,19 @@ export const useTravelStore = create(
           }
           return { itinerary };
         }),
-        
+
+        // 打卡功能
+        toggleCheckIn: (dayIdx, actIdx) => set((state) => {
+          const itinerary = [...state.itinerary];
+          if (itinerary[dayIdx]?.activities?.[actIdx]) {
+            itinerary[dayIdx].activities[actIdx] = {
+              ...itinerary[dayIdx].activities[actIdx],
+              checked: !itinerary[dayIdx].activities[actIdx].checked,
+            };
+          }
+          return { itinerary };
+        }),
+
         // POI 数据（酒店推荐等）
         pois: [],
         setPois: (pois) => set({ pois }),
@@ -109,7 +121,7 @@ export const useTravelStore = create(
         // ============================================================
         // AI 功能缓存
         // ============================================================
-        
+
         // 缓存各种 AI 功能的结果，避免重复请求
         cache: {
           budget: null,
@@ -120,13 +132,13 @@ export const useTravelStore = create(
           souvenirs: null,
           photoChallenges: null,
         },
-        
+
         setCache: (key, data) => set((state) => ({
           cache: { ...state.cache, [key]: data },
         })),
-        
+
         getCache: (key) => get().cache[key],
-        
+
         clearCache: () => set({
           cache: {
             budget: null,
@@ -142,15 +154,15 @@ export const useTravelStore = create(
         // ============================================================
         // UI 状态
         // ============================================================
-        
+
         // 当前激活的 Tab
         activeTab: 'itinerary', // itinerary | pois | map
         setActiveTab: (tab) => set({ activeTab: tab }),
-        
+
         // 移动端视图
         mobileView: 'chat', // chat | dashboard
         setMobileView: (view) => set({ mobileView: view }),
-        
+
         // Modal 状态
         modal: {
           isOpen: false,
@@ -160,7 +172,7 @@ export const useTravelStore = create(
           isLoading: false,
           context: null, // 额外上下文，如当前日期
         },
-        
+
         openModal: (type, title, content = null, context = null) => set({
           modal: {
             isOpen: true,
@@ -171,37 +183,37 @@ export const useTravelStore = create(
             context,
           },
         }),
-        
+
         setModalContent: (content) => set((state) => ({
           modal: { ...state.modal, content, isLoading: false },
         })),
-        
+
         setModalLoading: (isLoading) => set((state) => ({
           modal: { ...state.modal, isLoading },
         })),
-        
+
         closeModal: () => set((state) => ({
           modal: { ...state.modal, isOpen: false },
         })),
-        
+
         // 活动详情 Modal
         detailModal: {
           isOpen: false,
           activity: null,
           path: null, // { type: 'itinerary' | 'poi', dayIdx?, actIdx?, index? }
         },
-        
+
         openDetailModal: (activity, path) => set({
           detailModal: { isOpen: true, activity, path },
         }),
-        
+
         updateDetailActivity: (updates) => set((state) => ({
           detailModal: {
             ...state.detailModal,
             activity: { ...state.detailModal.activity, ...updates },
           },
         })),
-        
+
         closeDetailModal: () => set({
           detailModal: { isOpen: false, activity: null, path: null },
         }),
@@ -209,7 +221,7 @@ export const useTravelStore = create(
         // ============================================================
         // 重置
         // ============================================================
-        
+
         resetTrip: () => set({
           destination: '未知目的地',
           tripStatus: 'Planning',

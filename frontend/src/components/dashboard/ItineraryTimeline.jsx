@@ -13,6 +13,8 @@ import {
   Feather,
   Sparkles,
   Video,
+  CheckCircle2,
+  CheckSquare,
 } from 'lucide-react';
 import useTravelStore from '../../store/useTravelStore';
 import { useAiFeature } from '../../hooks';
@@ -26,7 +28,7 @@ const typeIcons = {
 };
 
 export function ItineraryTimeline() {
-  const { itinerary, openDetailModal } = useTravelStore();
+  const { itinerary, openDetailModal, toggleCheckIn } = useTravelStore();
   const { getDayTips, generateDiary, generateVlogScript } = useAiFeature();
 
   // 空状态
@@ -100,28 +102,43 @@ export function ItineraryTimeline() {
           <div className="space-y-3">
             {day.activities?.map((act, actIdx) => {
               const Icon = typeIcons[act.type] || typeIcons.default;
+              const isChecked = act.checked;
 
               return (
                 <div
                   key={actIdx}
-                  onClick={() => handleActivityClick(dayIdx, actIdx, act)}
-                  className="bg-white/5 border border-white/10 rounded-xl p-3 lg:p-4 hover:bg-white/10 hover:border-blue-500/30 hover:shadow-lg hover:shadow-blue-900/10 hover:-translate-y-0.5 transition-all cursor-pointer group relative active:scale-[0.99] active:bg-white/5"
+                  className={`bg-white/5 border border-white/10 rounded-xl p-3 lg:p-4 hover:bg-white/10 hover:border-blue-500/30 hover:shadow-lg hover:shadow-blue-900/10 hover:-translate-y-0.5 transition-all cursor-pointer group relative active:scale-[0.99] active:bg-white/5 ${isChecked ? 'opacity-60 grayscale' : ''}`}
                 >
-                  {/* 箭头指示 */}
-                  <div className="absolute top-4 right-4 text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <ChevronRight size={18} />
+                  {/* 打卡按钮和箭头 */}
+                  <div className="absolute top-4 right-4 flex gap-2">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleCheckIn(dayIdx, actIdx);
+                      }}
+                      className={`p-1.5 rounded-full transition-colors ${isChecked ? 'text-green-400 bg-green-900/30' : 'text-gray-600 hover:text-green-400 hover:bg-green-900/20'}`}
+                      title="打卡"
+                    >
+                      {isChecked ? <CheckSquare size={18} /> : <CheckCircle2 size={18} />}
+                    </button>
+                    <div className="text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <ChevronRight size={18} />
+                    </div>
                   </div>
 
-                  <div className="flex items-start gap-3 lg:gap-4">
+                  <div
+                    className="flex items-start gap-3 lg:gap-4"
+                    onClick={() => handleActivityClick(dayIdx, actIdx, act)}
+                  >
                     {/* 图标 */}
                     <div className="mt-1 p-2 rounded-lg bg-gray-800 text-blue-400 group-hover:scale-110 transition-transform shrink-0">
                       <Icon size={16} />
                     </div>
 
                     {/* 内容 */}
-                    <div className="flex-1 min-w-0 pr-6">
+                    <div className="flex-1 min-w-0 pr-10">
                       <div className="flex justify-between items-start flex-wrap gap-2">
-                        <h4 className="font-semibold text-gray-200 truncate pr-2 group-hover:text-blue-300 transition-colors">
+                        <h4 className={`font-semibold text-gray-200 truncate pr-2 group-hover:text-blue-300 transition-colors ${isChecked ? 'line-through text-gray-500' : ''}`}>
                           {act.title}
                         </h4>
                         <span className="text-xs font-mono text-gray-500 bg-gray-800 px-2 py-0.5 rounded whitespace-nowrap">

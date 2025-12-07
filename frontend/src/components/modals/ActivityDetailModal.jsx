@@ -24,6 +24,9 @@ import {
   BedDouble,
   Utensils,
   Share2,
+  Camera,
+  Sparkles,
+  Info,
 } from 'lucide-react';
 import { assistantsApi } from '../../api/client';
 import useTravelStore from '../../store/useTravelStore';
@@ -54,6 +57,8 @@ export function ActivityDetailModal() {
   const [copied, setCopied] = useState(false);
   const [isGeneratingCaptions, setIsGeneratingCaptions] = useState(false);
   const [captions, setCaptions] = useState(null);
+  const [isGettingPhotoGuide, setIsGettingPhotoGuide] = useState(false);
+  const [photoGuide, setPhotoGuide] = useState(null);
 
   if (!isOpen || !activity) return null;
 
@@ -142,6 +147,19 @@ export function ActivityDetailModal() {
     }
   };
 
+  // 摄影指导
+  const handleGetPhotoGuide = async () => {
+    setIsGettingPhotoGuide(true);
+    try {
+      const result = await assistantsApi.getPhotoGuide(destination, activity.title);
+      setPhotoGuide(result);
+    } catch (error) {
+      console.error('Photo guide failed:', error);
+    } finally {
+      setIsGettingPhotoGuide(false);
+    }
+  };
+
   // 关闭并重置
   const handleClose = () => {
     setActiveTab('overview');
@@ -149,6 +167,7 @@ export function ActivityDetailModal() {
     setStory(null);
     setReviews(null);
     setCaptions(null);
+    setPhotoGuide(null);
     closeDetailModal();
   };
 
@@ -382,6 +401,49 @@ export function ActivityDetailModal() {
                     </p>
                   )}
                 </div>
+
+                {/* 摄影指导 */}
+                {!isHotel && (
+                  <div className="bg-white/5 border border-white/10 rounded-xl p-4">
+                    <div className="flex justify-between items-center mb-3">
+                      <h4 className="text-white font-semibold flex items-center gap-2">
+                        <Camera size={18} className="text-pink-400" />
+                        摄影指导
+                      </h4>
+                      {!photoGuide && (
+                        <button
+                          onClick={handleGetPhotoGuide}
+                          disabled={isGettingPhotoGuide}
+                          className="text-xs bg-pink-600/20 text-pink-400 px-3 py-1 rounded-full border border-pink-500/20 hover:bg-pink-600/40 transition-colors disabled:opacity-50"
+                        >
+                          {isGettingPhotoGuide ? (
+                            <span className="flex items-center gap-1">
+                              <Loader2 size={12} className="animate-spin" />
+                              分析中...
+                            </span>
+                          ) : (
+                            '获取建议'
+                          )}
+                        </button>
+                      )}
+                    </div>
+                    {photoGuide ? (
+                      <div className="bg-pink-900/20 border border-pink-500/20 rounded-xl p-4 animate-fadeIn flex gap-4">
+                        <Camera size={24} className="text-pink-400 shrink-0 mt-1" />
+                        <div>
+                          <div className="text-sm font-bold text-white mb-1">最佳拍摄建议</div>
+                          <div className="text-xs text-gray-300">⏰ {photoGuide.best_time}</div>
+                          <div className="text-xs text-gray-300">📐 {photoGuide.best_angle}</div>
+                          <div className="text-xs text-gray-400 mt-1 italic">{photoGuide.composition_tip}</div>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-gray-500 text-sm">
+                        点击"获取建议"了解最佳拍摄时机和角度...
+                      </p>
+                    )}
+                  </div>
+                )}
 
                 {/* 发圈文案 */}
                 {!isHotel && (
