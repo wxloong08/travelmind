@@ -15,8 +15,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# 预安装 MCP Server（高德地图 + 博查搜索）
-RUN npm install -g @amap/amap-maps-mcp-server bocha-search-mcp
+# 预安装 MCP Server（高德地图）
+# 注：博查 MCP 需要 uv/Python，暂时保留原 API 实现
+RUN npm install -g @amap/amap-maps-mcp-server
 
 # 创建非 root 用户
 RUN groupadd --gid 1000 travelmind && \
