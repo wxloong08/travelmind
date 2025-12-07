@@ -109,27 +109,31 @@ class BochaClient:
             raise
 
         results = []
-        for item in data.get("data", {}).get("webPages", {}).get("value", []):
-            results.append(
-                SearchResult(
-                    title=item.get("name", ""),
-                    url=item.get("url", ""),
-                    snippet=item.get("snippet", ""),
-                    source=item.get("siteName"),
-                    published_date=item.get("datePublished"),
-                    site_icon=item.get("siteIcon"),
-                    thumbnail=item.get("thumbnailUrl"),
+        web_pages = data.get("data", {}).get("webPages")
+        if web_pages and "value" in web_pages:
+            for item in web_pages.get("value", []):
+                results.append(
+                    SearchResult(
+                        title=item.get("name", ""),
+                        url=item.get("url", ""),
+                        snippet=item.get("snippet", ""),
+                        source=item.get("siteName"),
+                        published_date=item.get("datePublished"),
+                        site_icon=item.get("siteIcon"),
+                        thumbnail=item.get("thumbnailUrl"),
+                    )
                 )
-            )
 
         # 解析图片结果
         images = []
-        for img in data.get("data", {}).get("images", {}).get("value", []):
-            images.append({
-                "url": img.get("contentUrl"),
-                "thumbnail": img.get("thumbnailUrl"),
-                "name": img.get("name"),
-            })
+        images_data = data.get("data", {}).get("images")
+        if images_data and "value" in images_data:
+            for img in images_data.get("value", []):
+                images.append({
+                    "url": img.get("contentUrl"),
+                    "thumbnail": img.get("thumbnailUrl"),
+                    "name": img.get("name"),
+                })
 
         logger.info("Bocha search response", query=query, result_count=len(results), image_count=len(images))
         return results, images

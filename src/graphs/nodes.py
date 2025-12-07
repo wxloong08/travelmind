@@ -77,6 +77,9 @@ async def _search_web(query: str, count: int = 5) -> list[dict]:
     try:
         from src.tools import web_search
         result = await web_search.ainvoke({"query": query, "count": count})
+        if result is None:
+            logger.warning("Web search returned None", query=query)
+            return []
         return result.get("results", [])
     except Exception as e:
         logger.warning("Web search failed", query=query, error=str(e))
