@@ -11,7 +11,7 @@ const API_BASE = import.meta.env.VITE_API_BASE || '/api/v1';
  */
 async function request(endpoint, options = {}) {
   const url = `${API_BASE}${endpoint}`;
-  
+
   const config = {
     headers: {
       'Content-Type': 'application/json',
@@ -21,7 +21,7 @@ async function request(endpoint, options = {}) {
   };
 
   const response = await fetch(url, config);
-  
+
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: response.statusText }));
     throw new Error(error.detail || 'Request failed');
@@ -35,7 +35,7 @@ async function request(endpoint, options = {}) {
  */
 async function* streamRequest(endpoint, body) {
   const url = `${API_BASE}${endpoint}`;
-  
+
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -53,23 +53,23 @@ async function* streamRequest(endpoint, body) {
   try {
     while (true) {
       const { done, value } = await reader.read();
-      
+
       if (done) break;
-      
+
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split('\n');
-      
+
       // 保留最后一个可能不完整的行
       buffer = lines.pop() || '';
-      
+
       for (const line of lines) {
         if (line.startsWith('data: ')) {
           const data = line.slice(6).trim();
-          
+
           if (data === '[DONE]') {
             return;
           }
-          
+
           try {
             yield JSON.parse(data);
           } catch (e) {
@@ -269,6 +269,41 @@ export const assistantsApi = {
         day_title: dayTitle,
         activities,
       }),
+    });
+  },
+
+  /**
+   * Vlog 脚本
+   */
+  async getVlogScript(destination, day, dayTitle, activities = []) {
+    return request('/assistants/vlog_script', {
+      method: 'POST',
+      body: JSON.stringify({
+        destination,
+        day,
+        day_title: dayTitle,
+        activities,
+      }),
+    });
+  },
+
+  /**
+   * 摄影指导
+   */
+  async getPhotoGuide(destination, placeName) {
+    return request('/assistants/photo_guide', {
+      method: 'POST',
+      body: JSON.stringify({ destination, place_name: placeName }),
+    });
+  },
+
+  /**
+   * 海报数据
+   */
+  async getPosterData(destination, days, activities = []) {
+    return request('/assistants/poster_data', {
+      method: 'POST',
+      body: JSON.stringify({ destination, days, activities }),
     });
   },
 };

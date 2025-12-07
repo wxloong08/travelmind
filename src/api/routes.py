@@ -706,6 +706,135 @@ async def api_generate_social_captions(request: SocialCaptionsRequest) -> Social
     )
 
 
+# --- Vlog 脚本 ---
+class VlogRequest(BaseModel):
+    """Vlog 脚本请求"""
+    destination: str
+    day: int
+    day_title: str
+    activities: list[str]
+
+
+class VlogShot(BaseModel):
+    """Vlog 镜头"""
+    action: str
+    angle: str
+    duration: str
+    audio: str
+
+
+class VlogResponse(BaseModel):
+    """Vlog 脚本响应"""
+    title: str
+    shots: list[VlogShot]
+    bgm: str
+
+
+@router.post(
+    "/assistants/vlog_script",
+    response_model=VlogResponse,
+    tags=["AI Assistants"],
+    summary="Vlog 脚本",
+)
+async def api_generate_vlog_script(request: VlogRequest) -> VlogResponse:
+    """
+    生成 Vlog 拍摄脚本
+
+    包含镜头列表、配音文案、背景音乐建议
+    """
+    logger.info("Vlog script generation", destination=request.destination, day=request.day)
+
+    result = await assistant_service.generate_vlog_script(
+        destination=request.destination,
+        day=request.day,
+        day_title=request.day_title,
+        activities=request.activities,
+    )
+
+    return VlogResponse(
+        title=result.get("title", ""),
+        shots=[VlogShot(**s) for s in result.get("shots", [])],
+        bgm=result.get("bgm", ""),
+    )
+
+
+# --- 摄影指导 ---
+class PhotoGuideRequest(BaseModel):
+    """摄影指导请求"""
+    destination: str
+    place_name: str
+
+
+class PhotoGuideResponse(BaseModel):
+    """摄影指导响应"""
+    best_time: str
+    best_angle: str
+    composition_tip: str
+    gear_tip: str
+    avoid: str
+
+
+@router.post(
+    "/assistants/photo_guide",
+    response_model=PhotoGuideResponse,
+    tags=["AI Assistants"],
+    summary="摄影指导",
+)
+async def api_generate_photo_guide(request: PhotoGuideRequest) -> PhotoGuideResponse:
+    """
+    生成景点摄影指导
+
+    包含最佳拍摄时间、角度、构图建议
+    """
+    logger.info("Photo guide generation", destination=request.destination, place=request.place_name)
+
+    result = await assistant_service.generate_photo_guide(
+        destination=request.destination,
+        place_name=request.place_name,
+    )
+
+    return PhotoGuideResponse(**result)
+
+
+# --- 海报数据 ---
+class PosterRequest(BaseModel):
+    """海报数据请求"""
+    destination: str
+    days: int
+    activities: list[str] | None = None
+
+
+class PosterResponse(BaseModel):
+    """海报数据响应"""
+    destination: str
+    days: str
+    highlights: list[str]
+    budget: str
+
+
+@router.post(
+    "/assistants/poster_data",
+    response_model=PosterResponse,
+    tags=["AI Assistants"],
+    summary="海报数据",
+)
+async def api_generate_poster_data(request: PosterRequest) -> PosterResponse:
+    """
+    生成分享海报所需数据
+
+    包含行程亮点、预算摘要
+    """
+    logger.info("Poster data generation", destination=request.destination, days=request.days)
+
+    result = await assistant_service.generate_poster_data(
+        destination=request.destination,
+        days=request.days,
+        activities=request.activities,
+    )
+
+    return PosterResponse(**result)
+
+
 # ============================================================
 # 调试 API (仅开发环境)
 # ============================================================

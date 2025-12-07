@@ -536,6 +536,132 @@ class AssistantService:
 
         return await self._call_llm_text(prompt)
 
+    # ================================================================
+    # Vlog 脚本生成
+    # ================================================================
+
+    async def generate_vlog_script(
+        self,
+        destination: str,
+        day: int,
+        day_title: str,
+        activities: list[str],
+    ) -> dict[str, Any]:
+        """生成 Vlog 拍摄脚本"""
+        activities_str = "、".join(activities) if activities else "一般游览"
+
+        prompt = f"""你是一位专业的短视频编导。请为以下旅行日程生成一个完整的 Vlog 拍摄脚本：
+
+## 背景信息
+- 目的地：{destination}
+- 第几天：Day {day}
+- 主题：{day_title}
+- 今日行程：{activities_str}
+
+请返回 JSON 格式：
+{{
+    "title": "吸引眼球的 Vlog 标题，如【{destination}Vlog】Day{day} xxx",
+    "shots": [
+        {{
+            "action": "具体拍摄内容描述",
+            "angle": "拍摄角度，如广角、特写、跟拍",
+            "duration": "建议时长，如 3s、5s",
+            "audio": "配音文案或同期声描述"
+        }}
+    ],
+    "bgm": "推荐背景音乐风格或具体歌曲"
+}}
+
+要求：
+1. 生成 5-8 个镜头
+2. 包含开场、主体内容和结尾
+3. 镜头要有变化，避免单一
+4. 配音文案要生动有趣"""
+
+        result = await self._call_llm_json(prompt)
+        if result:
+            return result
+        return {"title": f"{destination} Day{day}", "shots": [], "bgm": "轻快旅行音乐"}
+
+    # ================================================================
+    # 摄影指导
+    # ================================================================
+
+    async def generate_photo_guide(
+        self,
+        destination: str,
+        place_name: str,
+    ) -> dict[str, Any]:
+        """生成景点摄影指导"""
+        prompt = f"""你是一位专业的旅行摄影师。请为以下景点提供摄影建议：
+
+景点：{place_name}
+城市：{destination}
+
+请返回 JSON 格式：
+{{
+    "best_time": "最佳拍摄时间段，如'日落时分 17:00-19:00'",
+    "best_angle": "最佳拍摄角度和位置",
+    "composition_tip": "构图技巧建议",
+    "gear_tip": "器材建议（手机也可以）",
+    "avoid": "拍摄时应避免的问题"
+}}
+
+请基于{place_name}的实际情况给出专业建议。"""
+
+        result = await self._call_llm_json(prompt)
+        if result:
+            return result
+        return {
+            "best_time": "早晨或傍晚光线柔和时",
+            "best_angle": "寻找独特视角",
+            "composition_tip": "注意前景和背景的搭配",
+            "gear_tip": "手机开启 HDR 模式",
+            "avoid": "避免正午强光直射"
+        }
+
+    # ================================================================
+    # 海报数据生成
+    # ================================================================
+
+    async def generate_poster_data(
+        self,
+        destination: str,
+        days: int,
+        activities: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """生成分享海报所需数据"""
+        activities_str = "、".join(activities[:10]) if activities else "探索当地"
+
+        prompt = f"""请为以下旅行生成分享海报所需的摘要信息：
+
+目的地：{destination}
+天数：{days} 天
+行程亮点：{activities_str}
+
+请返回 JSON 格式：
+{{
+    "destination": "{destination}",
+    "days": "{days}天{days-1}晚 深度游",
+    "highlights": ["亮点1", "亮点2", "亮点3"],
+    "budget": "预估总预算，如 ¥3000"
+}}
+
+要求：
+1. highlights 提取 3 个最吸引人的亮点
+2. budget 根据行程和天数合理估算"""
+
+        result = await self._call_llm_json(prompt)
+        if result:
+            return result
+        return {
+            "destination": destination,
+            "days": f"{days}天{days-1}晚",
+            "highlights": ["探索未知", "品味美食", "留下回忆"],
+            "budget": "¥3000起"
+        }
+
 
 # 创建全局实例
 assistant_service = AssistantService()
+
