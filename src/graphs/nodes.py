@@ -400,85 +400,102 @@ async def research_node(state: AgentState) -> dict[str, Any]:
 
     执行多轮精准搜索，收集真实 UGC 攻略
     """
+    import traceback
+    
     logger.info("Node: research", task_type=state.get("task_type"))
 
-    task_type = state.get("task_type")
-    updates: dict[str, Any] = {
-        "updated_at": datetime.now().isoformat(),
-    }
-
-    if task_type != TaskType.TRAVEL_PLANNING.value:
-        updates["next_action"] = "respond"
-        return updates
-
-    travel_pref = state.get("travel_preference") or {}
-    destination = travel_pref.get("destination", "")
-    
-    if not destination:
-        updates["next_action"] = "respond"
-        return updates
-
-    travel_style = travel_pref.get("travel_style", "自由行")
-    must_visit_places = travel_pref.get("must_visit_places", [])
-    
-    # 估算天数
-    days_raw = travel_pref.get("dates_raw", "")
-    days = 3
-    if "天" in days_raw:
-        match = re.search(r"(\d+)\s*天", days_raw)
-        if match:
-            days = int(match.group(1))
-    elif "晚" in days_raw:
-        match = re.search(r"(\d+)\s*晚", days_raw)
-        if match:
-            days = int(match.group(1)) + 1
-
-    # ========== 多轮精准搜索 ==========
-    guides = await _search_and_fetch_guides(
-        destination=destination,
-        days=days,
-        travel_style=travel_style,
-        must_visit_places=must_visit_places,
-    )
-    
-    # 存储搜索结果
-    updates["search_results"] = guides.get("general_guides", []) + guides.get("place_guides", [])
-    
-    # 存储完整攻略上下文（供 planning_node 使用）
-    guide_context = _build_guide_context(guides)
-    
-    # 将攻略上下文存入 travel_preference
-    travel_pref["guide_context"] = guide_context
-    travel_pref["days"] = days
-    updates["travel_preference"] = travel_pref
-
-    # ========== 获取天气信息 ==========
     try:
-        from src.tools import get_weather
-        weather_result = await get_weather.ainvoke({"city": destination})
-        updates["weather_info"] = weather_result
-        logger.info("Weather fetched", city=destination)
+        task_type = state.get("task_type")
+        updates: dict[str, Any] = {
+            "updated_at": datetime.now().isoformat(),
+        }
+
+        if task_type != TaskType.TRAVEL_PLANNING.value:
+            updates["next_action"] = "respond"
+            return updates
+
+        travel_pref = state.get("travel_preference") or {}
+        destination = travel_pref.get("destination", "")
+    
+        if not destination:
+            updates["next_action"] = "respond"
+            return updates
+
+        travel_style = travel_pref.get("travel_style", "自由行")
+        must_visit_places = travel_pref.get("must_visit_places", [])
+        
+        # 估算天数
+        days_raw = travel_pref.get("dates_raw", "")
+        days = 3
+        if "天" in days_raw:
+            match = re.search(r"(\d+)\s*天", days_raw)
+            if match:
+                days = int(match.group(1))
+        elif "晚" in days_raw:
+            match = re.search(r"(\d+)\s*晚", days_raw)
+            if match:
+                days = int(match.group(1)) + 1
+
+        # ========== 多轮精准搜索 ==========
+        guides = await _search_and_fetch_guides(
+            destination=destination,
+            days=days,
+            travel_style=travel_style,
+            must_visit_places=must_visit_places,
+        )
+        
+        # 存储搜索结果
+        updates["search_results"] = guides.get("general_guides", []) + guides.get("place_guides", [])
+        
+        # 存储完整攻略上下文（供 planning_node 使用）
+        guide_context = _build_guide_context(guides)
+        
+        # 将攻略上下文存入 travel_preference
+        travel_pref["guide_context"] = guide_context
+        travel_pref["days"] = days
+        updates["travel_preference"] = travel_pref
+
+        # ========== 获取天气信息 ==========
+        try:
+            from src.tools import get_weather
+            weather_result = await get_weather.ainvoke({"city": destination})
+            updates["weather_info"] = weather_result
+            logger.info("Weather fetched", city=destination)
+        except Exception as e:
+            logger.warning("Weather fetch failed", error=str(e))
+
+        # ========== 搜索 POI ==========
+        try:
+            from src.tools import search_poi
+            poi_result = await search_poi.ainvoke({
+                "keywords": "景点",
+                "city": destination,
+                "poi_type": "tourism",
+                "page_size": 10,
+            })
+            updates["collected_pois"] = poi_result.get("results", [])
+            logger.info("POIs collected", count=len(updates.get("collected_pois", [])))
+        except Exception as e:
+            logger.warning("POI search failed", error=str(e))
+
+        updates["planning_phase"] = PlanningPhase.PLANNING.value
+        updates["next_action"] = "plan"
+
+        return updates
+        
     except Exception as e:
-        logger.warning("Weather fetch failed", error=str(e))
-
-    # ========== 搜索 POI ==========
-    try:
-        from src.tools import search_poi
-        poi_result = await search_poi.ainvoke({
-            "keywords": "景点",
-            "city": destination,
-            "poi_type": "tourism",
-            "page_size": 10,
-        })
-        updates["collected_pois"] = poi_result.get("results", [])
-        logger.info("POIs collected", count=len(updates.get("collected_pois", [])))
-    except Exception as e:
-        logger.warning("POI search failed", error=str(e))
-
-    updates["planning_phase"] = PlanningPhase.PLANNING.value
-    updates["next_action"] = "plan"
-
-    return updates
+        # 全局异常处理：确保搜索失败时工作流能继续
+        logger.error(
+            "research_node failed",
+            error=str(e),
+            traceback=traceback.format_exc(),
+        )
+        # 返回安全的默认值，让工作流继续到 respond 节点
+        return {
+            "next_action": "respond",
+            "updated_at": datetime.now().isoformat(),
+            "errors": [f"信息收集失败: {str(e)}"],
+        }
 
 
 async def planning_node(state: AgentState) -> dict[str, Any]:

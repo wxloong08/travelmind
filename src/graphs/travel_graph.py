@@ -202,7 +202,11 @@ async def stream_travel_agent(
     - {type: "token", content: ...}
     - {type: "end", itinerary: [...], destination_detected: ..., ...}
     """
-    logger.info("Streaming travel agent", session_id=session_id)
+    import traceback
+    
+    logger.info("Streaming travel agent started", 
+                session_id=session_id, 
+                input_preview=user_input[:100])
 
     initial_state = create_initial_state(session_id)
     actual_session_id = session_id or initial_state["session_id"]
@@ -227,27 +231,44 @@ async def stream_travel_agent(
     final_state = None
     ai_response = ""
 
-    async for event in travel_graph.astream(state_with_message, config=config):
-        for node_name, node_output in event.items():
-            logger.debug("Stream event", node=node_name)
-            
-            # 保存最终状态
-            if final_state is None:
-                final_state = node_output
-            else:
-                final_state = {**final_state, **node_output}
-            
-            # 从 respond 节点提取 AI 响应
-            if node_name == "respond" and node_output.get("messages"):
-                for msg in node_output["messages"]:
-                    if hasattr(msg, "content"):
-                        ai_response = msg.content
-                        # 发送完整内容作为一个 token 事件
-                        # 前端会追加到现有内容
-                        yield {
-                            "type": "token",
-                            "content": ai_response,
-                        }
+    try:
+        # 关键修复：在工作流执行周围添加 try-except
+        async for event in travel_graph.astream(state_with_message, config=config):
+            for node_name, node_output in event.items():
+                # 改为 info 级别，便于调试
+                logger.info("Stream node executed", 
+                           node=node_name, 
+                           output_keys=list(node_output.keys()) if isinstance(node_output, dict) else "non-dict")
+                
+                # 保存最终状态
+                if final_state is None:
+                    final_state = node_output
+                else:
+                    final_state = {**final_state, **node_output}
+                
+                # 从 respond 节点提取 AI 响应
+                if node_name == "respond" and node_output.get("messages"):
+                    for msg in node_output["messages"]:
+                        if hasattr(msg, "content"):
+                            ai_response = msg.content
+                            logger.info("AI response extracted", content_length=len(ai_response))
+                            # 发送完整内容作为一个 token 事件
+                            yield {
+                                "type": "token",
+                                "content": ai_response,
+                            }
+                            
+    except Exception as e:
+        # 关键修复：捕获并记录工作流执行中的异常
+        logger.error(
+            "Workflow execution failed",
+            error=str(e),
+            error_type=type(e).__name__,
+            traceback=traceback.format_exc(),
+            session_id=actual_session_id,
+        )
+        # 重新抛出异常，让上层 generate() 处理
+        raise
 
     # 构建最终元数据
     end_event: dict[str, Any] = {

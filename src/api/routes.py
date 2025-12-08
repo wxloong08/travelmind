@@ -136,17 +136,35 @@ async def chat_stream(request: ChatRequest):
     使用 Server-Sent Events (SSE) 格式
     """
     import json
+    import traceback
 
     async def generate():
         try:
+            logger.info("Stream started", session_id=request.session_id, message=request.message[:100])
+            
             async for event in stream_travel_agent(
                 user_input=request.message,
                 session_id=request.session_id,
             ):
+                event_type = event.get("type", "unknown")
+                logger.debug("Stream event", event_type=event_type)
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                
         except Exception as e:
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            # 添加详细的错误日志 - 关键修复
+            error_msg = str(e)
+            error_traceback = traceback.format_exc()
+            logger.error(
+                "Stream error occurred",
+                error=error_msg,
+                error_type=type(e).__name__,
+                traceback=error_traceback,
+                session_id=request.session_id,
+                message=request.message[:100],
+            )
+            yield f"data: {json.dumps({'error': error_msg})}\n\n"
         finally:
+            logger.info("Stream completed", session_id=request.session_id)
             yield "data: [DONE]\n\n"
 
     return StreamingResponse(
