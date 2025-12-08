@@ -554,6 +554,13 @@ async def planning_node(state: AgentState) -> dict[str, Any]:
 
 **重要**：以上是用户明确提出想去的地点，必须安排在行程中，并作为核心亮点！"""
 
+    # 预构建 POI JSON 字符串（避免在 f-string 中使用双花括号导致 set 语法错误）
+    pois_for_prompt = [
+        {"name": p.get("name"), "type": p.get("type"), "address": p.get("address")} 
+        for p in collected_pois[:8]
+    ]
+    pois_json = json.dumps(pois_for_prompt, ensure_ascii=False, indent=2)
+
     # ========== 构建规划提示词 ==========
     planning_prompt = f"""你是一个专业的旅行规划师。请基于【真实 UGC 攻略】为用户制定行程。
 
@@ -586,7 +593,7 @@ async def planning_node(state: AgentState) -> dict[str, Any]:
 6. **每天2-3个主要景点**为宜，不要走马观花
 
 ## 📍 可参考的景点 POI
-{json.dumps([{{"name": p.get("name"), "type": p.get("type"), "address": p.get("address")}} for p in collected_pois[:8]], ensure_ascii=False, indent=2)}
+{pois_json}
 
 ---
 
