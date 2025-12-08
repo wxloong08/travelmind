@@ -305,14 +305,53 @@ async def understand_intent_node(state: AgentState) -> dict[str, Any]:
     # 解析分类结果
     try:
         content = response.content.strip()
+        logger.info("LLM intent raw response", content=content[:500])  # 记录原始响应
+        
         if content.startswith("```"):
             content = content.split("```")[1]
             if content.startswith("json"):
                 content = content[4:]
-        result = json.loads(content)
-    except json.JSONDecodeError:
-        logger.warning("Failed to parse intent classification", response=response.content)
-        result = {"task_type": TaskType.GENERAL_CHAT.value}
+        result = json.loads(content.strip())
+        logger.info("Parsed intent result", result=result)
+    except json.JSONDecodeError as e:
+        logger.warning("Failed to parse intent classification", error=str(e), response=response.content)
+        result = {"task_type": TaskType.GENERAL_CHAT.value, "extracted_info": {}}
+    
+    # 验证 task_type 是否有效，如果无效则使用关键词匹配
+    valid_task_types = [t.value for t in TaskType]
+    raw_task_type = result.get("task_type", "")
+    
+    if raw_task_type not in valid_task_types:
+        logger.warning("Invalid task_type from LLM", raw_task_type=raw_task_type)
+        raw_task_type = TaskType.GENERAL_CHAT.value
+    
+    # 如果被分类为 general_chat 但消息明显是旅游规划，使用关键词匹配覆盖
+    if raw_task_type == TaskType.GENERAL_CHAT.value:
+        travel_keywords = ["规划", "旅游", "游玩", "行程", "攻略", "去哪", "玩", "天游", "自由行", "亲子游", "情侣游", "天", "晚"]
+        if any(kw in user_message for kw in travel_keywords):
+            logger.info("Overriding to travel_planning via keyword matching", user_message=user_message[:100])
+            raw_task_type = TaskType.TRAVEL_PLANNING.value
+            # 尝试提取目的地
+            cities = ["北京", "上海", "广州", "深圳", "杭州", "成都", "重庆", "西安", "南京", "苏州", "三亚", "厦门", "青岛", "大理", "丽江"]
+            extracted = result.get("extracted_info", {})
+            if not extracted.get("destination"):
+                for city in cities:
+                    if city in user_message:
+                        extracted["destination"] = city
+                        break
+            # 尝试提取天数
+            if not extracted.get("dates"):
+                days_match = re.search(r"(\d+)\s*[天日]", user_message)
+                if days_match:
+                    extracted["dates"] = f"{days_match.group(1)}天"
+            # 提取旅行风格
+            if not extracted.get("travel_style"):
+                if "亲子" in user_message:
+                    extracted["travel_style"] = "亲子游"
+                elif "情侣" in user_message:
+                    extracted["travel_style"] = "情侣游"
+            result["extracted_info"] = extracted
+            result["task_type"] = raw_task_type
 
     task_type = result.get("task_type", TaskType.GENERAL_CHAT.value)
     extracted_info = result.get("extracted_info", {})
