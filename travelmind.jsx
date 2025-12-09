@@ -11,7 +11,7 @@ import {
     Wifi, Waves, Car, Dumbbell, UtensilsCrossed, BedDouble, Check, ThumbsUp, ThumbsDown,
     ShoppingBag, Feather, Aperture, Map, Video, Mic, Image as ImageIcon, CheckSquare, Download,
     PlayCircle, ExternalLink, Newspaper, TrendingUp, Sun, Moon, Umbrella, Wind, ChevronDown, Edit3,
-    BrainCircuit, ChevronLeft, ChevronRight as ChevronRightIcon, XCircle
+    BrainCircuit, ChevronLeft, ChevronRight as ChevronRightIcon, XCircle, Layers
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged, signOut, updateProfile, signInWithCustomToken } from 'firebase/auth';
@@ -103,6 +103,13 @@ const fallbackCopyTextToClipboard = (text, onSuccess, onError) => {
     } catch (err) { if (onError) onError(); }
 }
 
+const safeRender = (value) => {
+    if (typeof value === 'object' && value !== null) {
+        return JSON.stringify(value);
+    }
+    return value;
+};
+
 // --- Basic UI Components ---
 const EnhancedMarkdown = ({ text }) => {
     if (typeof text !== 'string') return null;
@@ -132,15 +139,148 @@ const ChatMessage = ({ role, content, isStreaming }) => {
     );
 };
 
+// --- REAL MAP IMPLEMENTATION (Leaflet) ---
+const RealMap = ({ itinerary, destination }) => {
+    const mapContainerRef = useRef(null);
+    const mapInstanceRef = useRef(null);
+    const [isMapReady, setIsMapReady] = useState(false);
+
+    // Mock Coordinates for robustness if AI fails to return them
+    const CITY_COORDS = {
+        "北京": [39.9042, 116.4074],
+        "上海": [31.2304, 121.4737],
+        "东京": [35.6762, 139.6503],
+        "大阪": [34.6937, 135.5023],
+        "三亚": [18.2528, 109.5119],
+        "成都": [30.5728, 104.0668],
+        "杭州": [30.2741, 120.1551],
+        "未知目的地": [39.9042, 116.4074]
+    };
+
+    useEffect(() => {
+        // Dynamically load Leaflet CSS and JS using cdnjs for better stability
+        const loadLeaflet = async () => {
+            if (window.L && typeof window.L.map === 'function') {
+                setIsMapReady(true);
+                return;
+            }
+
+            const link = document.createElement('link');
+            link.rel = 'stylesheet';
+            link.href = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css';
+            document.head.appendChild(link);
+
+            await new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';
+                script.onload = () => {
+                    // Slight delay to ensure window.L is fully populated
+                    setTimeout(() => {
+                        if (window.L && typeof window.L.map === 'function') {
+                            resolve();
+                        } else {
+                            reject(new Error("Leaflet failed to initialize correctly"));
+                        }
+                    }, 100);
+                };
+                script.onerror = reject;
+                document.head.appendChild(script);
+            });
+            setIsMapReady(true);
+        };
+
+        loadLeaflet().catch(err => console.error("Leaflet load error", err));
+    }, []);
+
+    useEffect(() => {
+        if (isMapReady && mapContainerRef.current && !mapInstanceRef.current && window.L && typeof window.L.map === 'function') {
+            const defaultCenter = CITY_COORDS[destination] || CITY_COORDS["北京"];
+            const map = window.L.map(mapContainerRef.current).setView(defaultCenter, 11);
+
+            // Dark Mode Tiles
+            window.L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+                subdomains: 'abcd',
+                maxZoom: 19
+            }).addTo(map);
+
+            mapInstanceRef.current = map;
+        }
+
+        // Update markers when itinerary changes
+        if (isMapReady && mapInstanceRef.current && itinerary.length > 0 && window.L) {
+            const map = mapInstanceRef.current;
+
+            // Clear existing layers (except tiles)
+            map.eachLayer((layer) => {
+                if (layer instanceof window.L.Marker || layer instanceof window.L.Polyline) {
+                    map.removeLayer(layer);
+                }
+            });
+
+            // Add markers
+            const points = [];
+            itinerary.forEach((day, dIdx) => {
+                day.activities.forEach((act, aIdx) => {
+                    // Try to use AI coords, or fuzzy offset from city center
+                    const cityCenter = CITY_COORDS[destination] || CITY_COORDS["北京"];
+                    // Create a pseudo-random offset if no coords to simulate spread
+                    const offsetLat = (Math.random() - 0.5) * 0.1;
+                    const offsetLng = (Math.random() - 0.5) * 0.1;
+                    const lat = act.lat || (cityCenter[0] + offsetLat);
+                    const lng = act.lng || (cityCenter[1] + offsetLng);
+
+                    if (lat && lng) {
+                        points.push([lat, lng]);
+                        const color = dIdx % 2 === 0 ? '#3b82f6' : '#10b981'; // Blue or Green based on day
+
+                        // Custom Dot Icon
+                        const icon = window.L.divIcon({
+                            className: 'custom-div-icon',
+                            html: `<div style="background-color: ${color}; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white;"></div>`,
+                            iconSize: [12, 12],
+                            iconAnchor: [6, 6]
+                        });
+
+                        window.L.marker([lat, lng], { icon })
+                            .addTo(map)
+                            .bindPopup(`<b>Day ${day.day}</b><br>${act.title}`);
+                    }
+                });
+            });
+
+            // Draw line connecting points
+            if (points.length > 1) {
+                window.L.polyline(points, { color: '#6366f1', weight: 3, opacity: 0.7, dashArray: '5, 10' }).addTo(map);
+                map.fitBounds(window.L.latLngBounds(points).pad(0.2));
+            }
+        }
+    }, [isMapReady, itinerary, destination]);
+
+    return (
+        <div className="h-full w-full rounded-3xl overflow-hidden border border-white/10 relative group">
+            {!isMapReady && <div className="absolute inset-0 flex items-center justify-center bg-gray-900"><Loader2 className="animate-spin text-blue-500" /></div>}
+            <div ref={mapContainerRef} className="w-full h-full z-0" style={{ minHeight: '400px' }}></div>
+            {/* Overlay Controls */}
+            <div className="absolute bottom-4 right-4 z-[400] flex flex-col gap-2">
+                <div className="bg-black/60 backdrop-blur px-3 py-1.5 rounded-lg text-xs text-white border border-white/10 flex items-center gap-2">
+                    <Layers size={14} />
+                    <span>OpenStreetMap</span>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 // --- Feature Views ---
 const TipsView = ({ data }) => {
     if (!data) return <div className="text-center text-gray-500">数据加载失败</div>;
     return (
         <div className="space-y-6">
-            {data.photo_spots && data.photo_spots.length > 0 && (<div className="animate-fadeIn"><h4 className="flex items-center gap-2 text-pink-400 font-bold mb-3 text-lg"><Camera size={20} /> 最佳出片机位</h4><div className="grid grid-cols-1 gap-3">{data.photo_spots.map((spot, i) => (<div key={i} className="bg-white/5 border border-white/10 rounded-xl p-3 flex gap-3"><div className="bg-pink-500/20 text-pink-400 w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 font-bold text-xs">{i + 1}</div><div><div className="text-white font-medium">{spot.name}</div><div className="text-xs text-gray-400 mt-1">{spot.desc}</div></div></div>))}</div></div>)}
-            {data.warnings && data.warnings.length > 0 && (<div className="animate-fadeIn" style={{ animationDelay: '100ms' }}><h4 className="flex items-center gap-2 text-yellow-400 font-bold mb-3 text-lg"><AlertTriangle size={20} /> 避坑指南</h4><div className="bg-yellow-500/10 border border-yellow-500/20 rounded-xl p-4 space-y-3">{data.warnings.map((warn, i) => (<div key={i} className="flex gap-2 text-sm text-gray-200"><AlertTriangle size={14} className="text-yellow-500 mt-0.5 flex-shrink-0" /><span>{warn}</span></div>))}</div></div>)}
-            {data.food && data.food.length > 0 && (<div className="animate-fadeIn" style={{ animationDelay: '200ms' }}><h4 className="flex items-center gap-2 text-orange-400 font-bold mb-3 text-lg"><Utensils size={20} /> 美食推荐</h4><div className="flex flex-wrap gap-2">{data.food.map((f, i) => (<span key={i} className="px-3 py-1 bg-white/5 border border-white/10 rounded-full text-xs text-orange-200">{f}</span>))}</div></div>)}
-            {data.transport && (<div className="animate-fadeIn" style={{ animationDelay: '300ms' }}><h4 className="flex items-center gap-2 text-blue-400 font-bold mb-2 text-lg"><Navigation size={20} /> 交通建议</h4><p className="text-sm text-gray-300 bg-blue-500/10 border border-blue-500/20 p-3 rounded-xl">{data.transport}</p></div>)}
+            {data.photo_spots && data.photo_spots.length > 0 && (<div className="animate-fadeIn"><h4 className="flex items-center gap-2 text-pink-400 font-bold mb-3 text-lg"><Camera size={20} /> 最佳出片机位</h4><div className="grid grid-cols-1 gap-3">{data.photo_spots.map((spot, i) => (<div key={i} className="bg-white/5 border border-white/10 rounded-xl p-3 flex gap-3"><div className="bg-pink-500/20 text-pink-400 w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 font-bold text-xs">{i + 1}</div><div><div className="text-white font-medium">{safeRender(spot.name)}</div><div className="text-xs text-gray-400 mt-1">{safeRender(spot.desc)}</div></div></div>))}</div></div>)}
+            {data.warnings && data.warnings.length > 0 && (<div className="animate-fadeIn" style={{ animationDelay: '100ms' }}><h4 className="flex items-center gap-2 text-yellow-400 font-bold mb-3 text-lg"><AlertTriangle size={20} /> 避坑指南</h4><div className="bg-yellow-500/10 border border-yellow-500/20 rounded-xl p-4 space-y-3">{data.warnings.map((warn, i) => (<div key={i} className="flex gap-2 text-sm text-gray-200"><AlertTriangle size={14} className="text-yellow-500 mt-0.5 flex-shrink-0" /><span>{safeRender(warn)}</span></div>))}</div></div>)}
+            {data.food && data.food.length > 0 && (<div className="animate-fadeIn" style={{ animationDelay: '200ms' }}><h4 className="flex items-center gap-2 text-orange-400 font-bold mb-3 text-lg"><Utensils size={20} /> 美食推荐</h4><div className="flex flex-wrap gap-2">{data.food.map((f, i) => (<span key={i} className="px-3 py-1 bg-white/5 border border-white/10 rounded-full text-xs text-orange-200">{safeRender(f)}</span>))}</div></div>)}
+            {data.transport && (<div className="animate-fadeIn" style={{ animationDelay: '300ms' }}><h4 className="flex items-center gap-2 text-blue-400 font-bold mb-2 text-lg"><Navigation size={20} /> 交通建议</h4><p className="text-sm text-gray-300 bg-blue-500/10 border border-blue-500/20 p-3 rounded-xl">{safeRender(data.transport)}</p></div>)}
         </div>
     );
 };
@@ -151,8 +291,8 @@ const PackingList = ({ data }) => {
     return (
         <div className="space-y-6">
             {data.special_tips && (<div className="bg-blue-900/20 border border-blue-500/20 p-4 rounded-xl mb-4"><h4 className="text-blue-300 font-bold mb-2 flex items-center gap-2"><Sparkles size={16} /> AI 特别提醒</h4><EnhancedMarkdown text={data.special_tips} /></div>)}
-            {data.categories.map((cat, catIdx) => (
-                <div key={catIdx} className="animate-fadeIn" style={{ animationDelay: `${catIdx * 100}ms` }}><h4 className="text-white font-semibold mb-3 border-l-4 border-purple-500 pl-3">{cat.name}</h4><div className="grid grid-cols-1 gap-3">{cat.items.map((item, itemIdx) => { const isChecked = checkedItems[`${catIdx}-${itemIdx}`]; return (<div key={itemIdx} onClick={() => toggleItem(catIdx, itemIdx)} className={`flex items-start gap-3 p-3 rounded-lg border transition-all cursor-pointer ${isChecked ? 'bg-green-900/10 border-green-500/30' : 'bg-white/5 border-white/5 hover:bg-white/10'}`}><div className={`mt-0.5 transition-colors ${isChecked ? 'text-green-500' : 'text-gray-500'}`}>{isChecked ? <CheckCircle2 size={20} /> : <Circle size={20} />}</div><div className="flex-1"><div className={`font-medium text-sm transition-all ${isChecked ? 'text-gray-500 line-through' : 'text-gray-200'}`}>{item.name}</div>{item.reason && (<div className="text-xs text-gray-500 mt-1">{item.reason}</div>)}</div></div>); })}</div></div>
+            {data.categories && data.categories.map((cat, catIdx) => (
+                <div key={catIdx} className="animate-fadeIn" style={{ animationDelay: `${catIdx * 100}ms` }}><h4 className="text-white font-semibold mb-3 border-l-4 border-purple-500 pl-3">{safeRender(cat.name)}</h4><div className="grid grid-cols-1 gap-3">{cat.items && cat.items.map((item, itemIdx) => { const isChecked = checkedItems[`${catIdx}-${itemIdx}`]; return (<div key={itemIdx} onClick={() => toggleItem(catIdx, itemIdx)} className={`flex items-start gap-3 p-3 rounded-lg border transition-all cursor-pointer ${isChecked ? 'bg-green-900/10 border-green-500/30' : 'bg-white/5 border-white/5 hover:bg-white/10'}`}><div className={`mt-0.5 transition-colors ${isChecked ? 'text-green-500' : 'text-gray-500'}`}>{isChecked ? <CheckCircle2 size={20} /> : <Circle size={20} />}</div><div className="flex-1"><div className={`font-medium text-sm transition-all ${isChecked ? 'text-gray-500 line-through' : 'text-gray-200'}`}>{safeRender(item.name)}</div>{item.reason && (<div className="text-xs text-gray-500 mt-1">{safeRender(item.reason)}</div>)}</div></div>); })}</div></div>
             ))}
         </div>
     );
@@ -160,24 +300,30 @@ const PackingList = ({ data }) => {
 const PlaylistView = ({ data }) => {
     const [copied, setCopied] = useState(false);
     if (!data) return <div className="text-center text-gray-500">无法获取歌单</div>;
-    const handleCopyPlaylist = () => { const text = data.songs.map(s => `${s.title} ${s.artist}`).join('\n'); copyToClipboard(text, () => { setCopied(true); setTimeout(() => setCopied(false), 2000); }, () => { alert("复制失败"); }); };
+    const handleCopyPlaylist = () => { if (data.songs) { const text = data.songs.map(s => `${s.title} ${s.artist}`).join('\n'); copyToClipboard(text, () => { setCopied(true); setTimeout(() => setCopied(false), 2000); }, () => { alert("复制失败"); }); } };
     const openMusicSearch = (service, song) => { const query = encodeURIComponent(`${song.title} ${song.artist}`); let url = ""; if (service === 'netease') url = `https://music.163.com/#/search/m/?s=${query}`; if (service === 'qq') url = `https://y.qq.com/n/ryqq/search?w=${query}`; window.open(url, '_blank'); };
     return (
-        <div className="space-y-6"><div className="bg-gradient-to-r from-violet-900/40 to-fuchsia-900/40 border border-violet-500/20 rounded-2xl p-6 relative overflow-hidden"><div className="relative z-10"><h3 className="text-violet-200 font-bold text-lg mb-1">{data.vibe_title}</h3><p className="text-gray-400 text-sm">{data.vibe_desc}</p><button onClick={handleCopyPlaylist} className="mt-4 flex items-center gap-2 bg-white/10 hover:bg-white/20 border border-white/10 px-3 py-1.5 rounded-lg text-xs text-white transition-all">{copied ? <CheckCircle2 size={12} className="text-green-400" /> : <Copy size={12} />}{copied ? "已复制" : "复制歌单"}</button></div><Music className="absolute right-4 bottom-4 text-violet-500/20 w-24 h-24 rotate-12" /></div><div className="space-y-3">{data.songs.map((song, i) => (<div key={i} className="flex items-center gap-3 p-3 bg-white/5 hover:bg-white/10 rounded-xl transition-colors border border-white/5 group"><div className="w-8 h-8 bg-gray-800 rounded-lg flex items-center justify-center text-gray-500 font-bold text-xs group-hover:text-violet-400 transition-colors shrink-0">{i + 1}</div><div className="flex-1 min-w-0"><div className="font-medium text-gray-200 truncate text-sm">{song.title}</div><div className="text-xs text-gray-500 truncate">{song.artist}</div></div><div className="flex items-center gap-2 opacity-60 group-hover:opacity-100 transition-opacity"><button onClick={() => openMusicSearch('netease', song)} className="px-2 py-1 bg-red-600/20 hover:bg-red-600/40 text-red-400 rounded text-[10px] border border-red-500/30 font-medium">网易</button><button onClick={() => openMusicSearch('qq', song)} className="px-2 py-1 bg-green-600/20 hover:bg-green-600/40 text-green-400 rounded text-[10px] border border-green-500/30 font-medium">QQ</button></div></div>))}</div></div>
+        <div className="space-y-6"><div className="bg-gradient-to-r from-violet-900/40 to-fuchsia-900/40 border border-violet-500/20 rounded-2xl p-6 relative overflow-hidden"><div className="relative z-10"><h3 className="text-violet-200 font-bold text-lg mb-1">{safeRender(data.vibe_title)}</h3><p className="text-gray-400 text-sm">{safeRender(data.vibe_desc)}</p><button onClick={handleCopyPlaylist} className="mt-4 flex items-center gap-2 bg-white/10 hover:bg-white/20 border border-white/10 px-3 py-1.5 rounded-lg text-xs text-white transition-all">{copied ? <CheckCircle2 size={12} className="text-green-400" /> : <Copy size={12} />}{copied ? "已复制" : "复制歌单"}</button></div><Music className="absolute right-4 bottom-4 text-violet-500/20 w-24 h-24 rotate-12" /></div><div className="space-y-3">{data.songs && data.songs.map((song, i) => (<div key={i} className="flex items-center gap-3 p-3 bg-white/5 hover:bg-white/10 rounded-xl transition-colors border border-white/5 group"><div className="w-8 h-8 bg-gray-800 rounded-lg flex items-center justify-center text-gray-500 font-bold text-xs group-hover:text-violet-400 transition-colors shrink-0">{i + 1}</div><div className="flex-1 min-w-0"><div className="font-medium text-gray-200 truncate text-sm">{safeRender(song.title)}</div><div className="text-xs text-gray-500 truncate">{safeRender(song.artist)}</div></div><div className="flex items-center gap-2 opacity-60 group-hover:opacity-100 transition-opacity"><button onClick={() => openMusicSearch('netease', song)} className="px-2 py-1 bg-red-600/20 hover:bg-red-600/40 text-red-400 rounded text-[10px] border border-red-500/30 font-medium">网易</button><button onClick={() => openMusicSearch('qq', song)} className="px-2 py-1 bg-green-600/20 hover:bg-green-600/40 text-green-400 rounded text-[10px] border border-green-500/30 font-medium">QQ</button></div></div>))}</div></div>
     );
 };
 const BudgetView = ({ data }) => {
     if (!data) return <div className="text-center text-gray-500">无法获取预算数据</div>;
     return (
-        <div className="space-y-6"><div className="bg-gradient-to-r from-emerald-900/30 to-teal-900/30 border border-emerald-500/20 rounded-2xl p-6 text-center"><h3 className="text-gray-400 text-sm mb-1 uppercase tracking-wider">预估总花费</h3><div className="text-4xl font-bold text-white text-shadow-lg">{data.total_range}</div></div><div className="space-y-3"><h4 className="text-white font-semibold flex items-center gap-2"><Banknote size={18} className="text-emerald-400" /> 费用明细</h4>{data.categories.map((cat, i) => (<div key={i} className="bg-white/5 border border-white/5 rounded-xl p-4 flex justify-between items-center"><div><div className="text-gray-200 font-medium">{cat.name}</div><div className="text-xs text-gray-500 mt-0.5">{cat.desc}</div></div><div className="text-emerald-300 font-mono font-bold">{cat.amount}</div></div>))}</div><div className="bg-blue-900/10 border border-blue-500/10 p-4 rounded-xl"><h4 className="text-blue-300 font-bold mb-2 flex items-center gap-2 text-sm"><Zap size={14} /> 省钱小妙招</h4><p className="text-sm text-gray-300 leading-relaxed">{data.saving_tip}</p></div></div>
+        <div className="space-y-6">
+            <div className="bg-gradient-to-r from-emerald-900/30 to-teal-900/30 border border-emerald-500/20 rounded-2xl p-6 text-center"><h3 className="text-gray-400 text-sm mb-1 uppercase tracking-wider">预估总花费</h3><div className="text-4xl font-bold text-white text-shadow-lg">{safeRender(data.total_range)}</div></div>
+            {data.categories && data.categories.length > 0 && (
+                <div className="space-y-3"><h4 className="text-white font-semibold flex items-center gap-2"><Banknote size={18} className="text-emerald-400" /> 费用明细</h4>{data.categories.map((cat, i) => (<div key={i} className="bg-white/5 border border-white/5 rounded-xl p-4 flex justify-between items-center"><div><div className="text-gray-200 font-medium">{safeRender(cat.name)}</div><div className="text-xs text-gray-500 mt-0.5">{safeRender(cat.desc)}</div></div><div className="text-emerald-300 font-mono font-bold">{safeRender(cat.amount)}</div></div>))}</div>
+            )}
+            <div className="bg-blue-900/10 border border-blue-500/10 p-4 rounded-xl"><h4 className="text-blue-300 font-bold mb-2 flex items-center gap-2 text-sm"><Zap size={14} /> 省钱小妙招</h4><p className="text-sm text-gray-300 leading-relaxed">{safeRender(data.saving_tip)}</p></div>
+        </div>
     );
 };
-const EmergencyView = ({ data }) => (<div className="space-y-6"><div className="bg-red-900/20 border border-red-500/30 p-4 rounded-xl flex items-start gap-3"><AlertTriangle className="text-red-500 flex-shrink-0 mt-1" /><div><h4 className="text-red-400 font-bold mb-1">紧急提示</h4><p className="text-gray-300 text-sm">{data.embassy_tip}</p></div></div><div className="grid grid-cols-2 gap-4">{Object.entries(data.local_numbers || {}).map(([key, num], i) => (<div key={i} className="bg-white/5 border border-white/10 rounded-xl p-4 flex flex-col items-center justify-center text-center"><div className="text-gray-400 text-xs uppercase mb-2 tracking-wider">{key}</div><div className="text-2xl font-bold text-white tracking-widest">{num}</div><button className="mt-2 text-xs bg-white/10 hover:bg-green-600 hover:text-white px-3 py-1 rounded-full flex items-center gap-1"><Phone size={10} /> 呼叫</button></div>))}</div></div>);
-const CultureView = ({ data }) => (<div className="space-y-6"><div className="space-y-3"><h4 className="text-white font-semibold flex items-center gap-2"><Globe size={18} className="text-blue-400" /> 社交禁忌 & 礼仪</h4><div className="grid grid-cols-1 gap-3">{data.taboos.map((taboo, i) => (<div key={i} className="bg-red-900/10 border border-red-500/20 p-3 rounded-xl flex gap-3 items-start"><X size={12} className="text-red-400 mt-0.5" /><p className="text-sm text-gray-300">{taboo}</p></div>))}</div></div></div>);
-const SouvenirView = ({ data }) => (<div className="space-y-6"><div className="space-y-3"><h4 className="text-white font-semibold flex items-center gap-2"><ShoppingBag size={18} className="text-pink-400" /> 必买伴手礼</h4><div className="grid grid-cols-1 gap-3">{data.must_buy.map((item, i) => (<div key={i} className="bg-white/5 border border-white/5 rounded-xl p-3 flex justify-between items-center"><div><div className="text-white font-bold">{item.name}</div><div className="text-xs text-gray-400">{item.desc}</div></div><div className="bg-pink-500/10 text-pink-400 text-xs px-2 py-1 rounded">推荐</div></div>))}</div></div></div>);
-const PhotoChallengeView = ({ data }) => (<div className="space-y-6"><div className="bg-indigo-900/20 border border-indigo-500/20 p-4 rounded-xl mb-4 text-center"><h4 className="text-indigo-300 font-bold mb-1 flex items-center justify-center gap-2 text-lg"><Aperture size={20} /> 城市探索者挑战</h4></div><div className="grid grid-cols-1 gap-4">{data.challenges.map((c, i) => (<div key={i} className="bg-white/5 border border-white/5 rounded-xl p-4 flex gap-4 items-center"><div className="w-12 h-12 rounded-full bg-indigo-600/20 text-indigo-400 flex items-center justify-center text-xl font-bold border border-indigo-500/30">{i + 1}</div><div><div className="font-bold text-white text-lg mb-1">{c.title}</div><div className="text-sm text-gray-400">{c.desc}</div></div></div>))}</div></div>);
-const VlogScriptView = ({ data }) => (<div className="space-y-6"><div className="text-center mb-4"><h3 className="text-xl font-bold text-white">Vlog 脚本</h3><p className="text-sm text-gray-400">{data.title}</p></div><div className="space-y-4">{data.shots.map((shot, i) => (<div key={i} className="bg-white/5 border border-white/5 rounded-xl p-4"><div className="flex justify-between mb-2"><span className="text-xs font-bold text-purple-400 uppercase">Shot {i + 1} • {shot.duration}</span><span className="text-xs text-gray-500">{shot.angle}</span></div><p className="text-white font-medium mb-1">{shot.action}</p></div>))}</div></div>);
-const PosterView = ({ data }) => { const posterRef = useRef(null); const handleDownload = async () => { if (!window.html2canvas) { await new Promise((resolve) => { const script = document.createElement('script'); script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js'; script.onload = resolve; document.head.appendChild(script); }); } const canvas = await window.html2canvas(posterRef.current, { useCORS: true, backgroundColor: null, scale: 2 }); const link = document.createElement('a'); link.download = `poster.png`; link.href = canvas.toDataURL('image/png'); link.click(); }; return (<div className="flex flex-col items-center gap-4"><div ref={posterRef} className="w-full max-w-sm bg-gradient-to-br from-indigo-900 to-purple-900 border border-white/20 rounded-2xl p-6 relative aspect-[3/4] flex flex-col"><h2 className="text-3xl font-black text-white mb-1">{data.destination}</h2><div className="space-y-4 my-6 flex-1">{data.highlights.map((h, i) => (<div key={i} className="flex items-center gap-3"><div className="w-1.5 h-1.5 bg-white rounded-full"></div><span className="text-white text-lg font-light">{h}</span></div>))}</div><div className="mt-auto flex justify-between items-end"><div className="text-white font-bold">TravelMind</div><div className="text-xl font-bold text-white">{data.budget}</div></div></div><button onClick={handleDownload} className="flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-full font-bold shadow-lg transition-all hover:scale-105"><Download size={18} /> 保存海报</button></div>); };
+const EmergencyView = ({ data }) => (<div className="space-y-6"><div className="bg-red-900/20 border border-red-500/30 p-4 rounded-xl flex items-start gap-3"><AlertTriangle className="text-red-500 flex-shrink-0 mt-1" /><div><h4 className="text-red-400 font-bold mb-1">紧急提示</h4><p className="text-gray-300 text-sm">{safeRender(data.embassy_tip)}</p></div></div><div className="grid grid-cols-2 gap-4">{data.local_numbers && Object.entries(data.local_numbers).map(([key, num], i) => (<div key={i} className="bg-white/5 border border-white/10 rounded-xl p-4 flex flex-col items-center justify-center text-center"><div className="text-gray-400 text-xs uppercase mb-2 tracking-wider">{safeRender(key)}</div><div className="text-2xl font-bold text-white tracking-widest">{safeRender(num)}</div><button className="mt-2 text-xs bg-white/10 hover:bg-green-600 hover:text-white px-3 py-1 rounded-full flex items-center gap-1"><Phone size={10} /> 呼叫</button></div>))}</div></div>);
+const CultureView = ({ data }) => (<div className="space-y-6"><div className="space-y-3"><h4 className="text-white font-semibold flex items-center gap-2"><Globe size={18} className="text-blue-400" /> 社交禁忌 & 礼仪</h4><div className="grid grid-cols-1 gap-3">{data.taboos && data.taboos.map((taboo, i) => (<div key={i} className="bg-red-900/10 border border-red-500/20 p-3 rounded-xl flex gap-3 items-start"><X size={12} className="text-red-400 mt-0.5" /><p className="text-sm text-gray-300">{safeRender(taboo)}</p></div>))}</div></div></div>);
+const SouvenirView = ({ data }) => (<div className="space-y-6"><div className="space-y-3"><h4 className="text-white font-semibold flex items-center gap-2"><ShoppingBag size={18} className="text-pink-400" /> 必买伴手礼</h4><div className="grid grid-cols-1 gap-3">{data.must_buy && data.must_buy.map((item, i) => (<div key={i} className="bg-white/5 border border-white/5 rounded-xl p-3 flex justify-between items-center"><div><div className="text-white font-bold">{safeRender(item.name)}</div><div className="text-xs text-gray-400">{safeRender(item.desc)}</div></div><div className="bg-pink-500/10 text-pink-400 text-xs px-2 py-1 rounded">推荐</div></div>))}</div></div></div>);
+const PhotoChallengeView = ({ data }) => (<div className="space-y-6"><div className="bg-indigo-900/20 border border-indigo-500/20 p-4 rounded-xl mb-4 text-center"><h4 className="text-indigo-300 font-bold mb-1 flex items-center justify-center gap-2 text-lg"><Aperture size={20} /> 城市探索者挑战</h4></div><div className="grid grid-cols-1 gap-4">{data.challenges && data.challenges.map((c, i) => (<div key={i} className="bg-white/5 border border-white/5 rounded-xl p-4 flex gap-4 items-center"><div className="w-12 h-12 rounded-full bg-indigo-600/20 text-indigo-400 flex items-center justify-center text-xl font-bold border border-indigo-500/30">{i + 1}</div><div><div className="font-bold text-white text-lg mb-1">{safeRender(c.title)}</div><div className="text-sm text-gray-400">{safeRender(c.desc)}</div></div></div>))}</div></div>);
+const VlogScriptView = ({ data }) => (<div className="space-y-6"><div className="text-center mb-4"><h3 className="text-xl font-bold text-white">Vlog 脚本</h3><p className="text-sm text-gray-400">{safeRender(data.title)}</p></div><div className="space-y-4">{data.shots && data.shots.map((shot, i) => (<div key={i} className="bg-white/5 border border-white/5 rounded-xl p-4"><div className="flex justify-between mb-2"><span className="text-xs font-bold text-purple-400 uppercase">Shot {i + 1} • {safeRender(shot.duration)}</span><span className="text-xs text-gray-500">{safeRender(shot.angle)}</span></div><p className="text-white font-medium mb-1">{safeRender(shot.action)}</p></div>))}</div></div>);
+const PosterView = ({ data }) => { const posterRef = useRef(null); const handleDownload = async () => { if (!window.html2canvas) { await new Promise((resolve) => { const script = document.createElement('script'); script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js'; script.onload = resolve; document.head.appendChild(script); }); } const canvas = await window.html2canvas(posterRef.current, { useCORS: true, backgroundColor: null, scale: 2 }); const link = document.createElement('a'); link.download = `poster.png`; link.href = canvas.toDataURL('image/png'); link.click(); }; return (<div className="flex flex-col items-center gap-4"><div ref={posterRef} className="w-full max-w-sm bg-gradient-to-br from-indigo-900 to-purple-900 border border-white/20 rounded-2xl p-6 relative aspect-[3/4] flex flex-col"><h2 className="text-3xl font-black text-white mb-1">{safeRender(data.destination)}</h2><div className="space-y-4 my-6 flex-1">{data.highlights && data.highlights.map((h, i) => (<div key={i} className="flex items-center gap-3"><div className="w-1.5 h-1.5 bg-white rounded-full"></div><span className="text-white text-lg font-light">{safeRender(h)}</span></div>))}</div><div className="mt-auto flex justify-between items-end"><div className="text-white font-bold">TravelMind</div><div className="text-xl font-bold text-white">{safeRender(data.budget)}</div></div></div><button onClick={handleDownload} className="flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-full font-bold shadow-lg transition-all hover:scale-105"><Download size={18} /> 保存海报</button></div>); };
 
 const GeminiModal = ({ isOpen, onClose, title, content, contentType, isLoading, onRegenerate }) => {
     if (!isOpen) return null;
@@ -229,7 +375,7 @@ const MiniMapWidget = ({ itinerary }) => {
                         <div key={i} className="flex gap-3 relative pb-4 last:pb-0">
                             {!isLast && <div className="absolute left-[9px] top-5 bottom-0 w-0.5 bg-white/10"></div>}
                             <div className="w-5 h-5 rounded-full bg-blue-500/20 border border-blue-500/50 flex items-center justify-center flex-shrink-0 mt-0.5 z-10 text-[10px] text-blue-300 font-bold font-mono">{i + 1}</div>
-                            <div className="min-w-0"><div className="text-xs font-bold text-gray-200 truncate">{act.title}</div>{i < 3 && <div className="text-[10px] text-gray-500 mt-0.5">↓ 约2.5km</div>}</div>
+                            <div className="min-w-0"><div className="text-xs font-bold text-gray-200 truncate">{safeRender(act.title)}</div>{i < 3 && <div className="text-[10px] text-gray-500 mt-0.5">↓ 约2.5km</div>}</div>
                         </div>
                     );
                 })}
@@ -251,12 +397,12 @@ const WeatherTrendWidget = ({ weatherData, destination }) => {
         return <CloudSun size={14} className="text-gray-400" />;
     };
     const forecast = weatherData && weatherData.length > 0 ? weatherData : [{ day: "今天", temp: "--", cond: "加载中" }, { day: "明天", temp: "--", cond: "..." }];
-    const hasBadWeather = weatherData && weatherData.some(f => f.cond.includes("雨") || f.cond.includes("雪"));
+    const hasBadWeather = weatherData && weatherData.some(f => f.cond && (f.cond.includes("雨") || f.cond.includes("雪")));
 
     return (
         <div className="bg-[#1a1d2d]/90 border border-white/10 rounded-2xl p-4 animate-fadeIn">
-            <div className="flex justify-between items-center mb-4"><h4 className="font-bold text-white text-sm flex items-center gap-2"><CloudSun size={14} className="text-yellow-400" /> 天气趋势</h4><span className="text-[10px] text-gray-500">{destination || "未知"}</span></div>
-            <div className="space-y-3">{forecast.map((f, i) => (<div key={i} className="flex items-center justify-between text-xs group"><div className="w-8 text-gray-400">{f.day}</div><div className="flex-1 flex justify-center">{getIcon(f.cond)}</div><div className="w-12 text-right font-mono text-white">{f.temp}°C</div><div className="w-12 text-right text-gray-500 truncate">{f.cond}</div></div>))}</div>
+            <div className="flex justify-between items-center mb-4"><h4 className="font-bold text-white text-sm flex items-center gap-2"><CloudSun size={14} className="text-yellow-400" /> 天气趋势</h4><span className="text-[10px] text-gray-500">{safeRender(destination) || "未知"}</span></div>
+            <div className="space-y-3">{forecast.map((f, i) => (<div key={i} className="flex items-center justify-between text-xs group"><div className="w-8 text-gray-400">{safeRender(f.day)}</div><div className="flex-1 flex justify-center">{getIcon(f.cond)}</div><div className="w-12 text-right font-mono text-white">{safeRender(f.temp)}°C</div><div className="w-12 text-right text-gray-500 truncate">{safeRender(f.cond)}</div></div>))}</div>
             {hasBadWeather && (<div className="mt-4 bg-blue-900/20 border border-blue-500/20 rounded p-2 flex gap-2 items-start"><Lightbulb size={14} className="text-yellow-400 flex-shrink-0 mt-0.5" /><p className="text-[10px] text-blue-200 leading-relaxed">未来几天可能有雨雪，建议调整户外行程。</p></div>)}
         </div>
     );
@@ -266,7 +412,7 @@ const LocalNewsWidget = ({ newsData, onRefresh, isLoading }) => (
     <div className="bg-[#1a1d2d]/90 border border-white/10 rounded-2xl p-4 animate-fadeIn">
         <div className="flex justify-between items-center mb-4"><h4 className="font-bold text-white text-sm flex items-center gap-2"><Newspaper size={14} className="text-pink-400" /> 当地资讯</h4><button onClick={onRefresh} className={`text-gray-500 hover:text-white transition-colors ${isLoading ? 'animate-spin' : ''}`} title="刷新"><RefreshCw size={12} /></button></div>
         <div className="space-y-4">
-            {newsData && newsData.length > 0 ? newsData.map((news, i) => (<div key={i} className="group cursor-pointer"><div className="flex justify-between items-start gap-2 mb-1"><h5 className="text-xs text-gray-200 font-medium group-hover:text-blue-400 transition-colors line-clamp-1">{news.title}</h5></div><div className="flex justify-between items-center"><p className="text-[10px] text-gray-500 line-clamp-1">AI 实时抓取中...</p><span className={`text-[9px] px-1.5 py-0.5 rounded flex-shrink-0 ${news.tag === '警告' ? 'text-red-400 bg-red-400/10' : 'text-blue-400 bg-blue-400/10'}`}>{news.tag}</span></div>{i < newsData.length - 1 && <div className="h-[1px] bg-white/5 mt-3"></div>}</div>)) : <div className="text-center text-xs text-gray-500 py-4">点击刷新获取最新资讯</div>}
+            {newsData && newsData.length > 0 ? newsData.map((news, i) => (<div key={i} className="group cursor-pointer"><div className="flex justify-between items-start gap-2 mb-1"><h5 className="text-xs text-gray-200 font-medium group-hover:text-blue-400 transition-colors line-clamp-1">{safeRender(news.title)}</h5></div><div className="flex justify-between items-center"><p className="text-[10px] text-gray-500 line-clamp-1">AI 实时抓取中...</p><span className={`text-[9px] px-1.5 py-0.5 rounded flex-shrink-0 ${news.tag === '警告' ? 'text-red-400 bg-red-400/10' : 'text-blue-400 bg-blue-400/10'}`}>{safeRender(news.tag)}</span></div>{i < newsData.length - 1 && <div className="h-[1px] bg-white/5 mt-3"></div>}</div>)) : <div className="text-center text-xs text-gray-500 py-4">点击刷新获取最新资讯</div>}
         </div>
     </div>
 );
@@ -337,7 +483,7 @@ const ActivityDetailModal = ({ isOpen, onClose, activity, destination }) => {
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fadeIn">
             <div className="bg-[#1a1d2d] border border-white/10 rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
                 <div className="h-56 relative overflow-hidden group"><img src={activity.image_url || `https://source.unsplash.com/800x400/?${activity.image_keyword || activity.type}`} className="w-full h-full object-cover" alt={activity.title} /><div className="absolute inset-0 bg-gradient-to-t from-[#1a1d2d] via-transparent to-transparent"></div><button onClick={onClose} className="absolute top-4 right-4 bg-black/40 hover:bg-black/60 text-white p-2 rounded-full backdrop-blur-md transition-all"><X size={20} /></button></div>
-                <div className="flex flex-col flex-1 overflow-hidden bg-[#1a1d2d]"><div className="px-6 pt-6 pb-2"><div className="flex justify-between items-start"><div><h2 className="text-2xl font-bold text-white mb-1 flex items-center gap-2">{formData.title}</h2><div className="flex items-center gap-2 text-gray-400 text-sm mt-1"><MapPin size={14} /> <span>{destination}</span></div></div></div></div><div className="flex-1 p-6 text-gray-300 text-sm">{typeof activity.desc === 'string' ? activity.desc : JSON.stringify(activity.desc)}</div></div>
+                <div className="flex flex-col flex-1 overflow-hidden bg-[#1a1d2d]"><div className="px-6 pt-6 pb-2"><div className="flex justify-between items-start"><div><h2 className="text-2xl font-bold text-white mb-1 flex items-center gap-2">{safeRender(formData.title)}</h2><div className="flex items-center gap-2 text-gray-400 text-sm mt-1"><MapPin size={14} /> <span>{safeRender(destination)}</span></div></div></div></div><div className="flex-1 p-6 text-gray-300 text-sm">{safeRender(typeof activity.desc === 'string' ? activity.desc : JSON.stringify(activity.desc))}</div></div>
             </div>
         </div>
     );
@@ -351,8 +497,8 @@ const ItineraryTimeline = ({ days, onGetTips, onActivityClick, onGetDiary, onTog
             {days.map((day, dayIdx) => (
                 <div key={dayIdx} className="relative pl-6 border-l-2 border-white/10 pb-2">
                     <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-blue-500 ring-4 ring-gray-900/50"></div>
-                    <div className="mb-6 flex justify-between items-start"><div><h3 className="text-lg lg:text-xl font-bold text-white mb-1 flex items-center gap-2"><span className="text-blue-400">Day {day.day}</span> {day.title}</h3></div><div className="flex gap-2"><button onClick={() => onGenerateVlog(day)} className="group flex items-center gap-1.5 px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg transition-all text-xs font-medium text-gray-300 hover:text-white"><Video size={14} className="text-purple-400" /><span>脚本</span></button><button onClick={() => onGetTips(day)} className="group flex items-center gap-1.5 px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg transition-all text-xs font-medium text-gray-300 hover:text-white"><Lightbulb size={14} className="text-yellow-500" /><span>AI 攻略</span></button></div></div>
-                    <div className="space-y-6">{day.activities.map((act, actIdx) => { const isChecked = act.checked; const isHotelReturn = act.type === 'hotel' || act.title.includes('酒店') || act.title.includes('入住'); return (<div key={actIdx} onClick={() => onActivityClick(dayIdx, actIdx, act)} className={`group relative flex gap-4 ${isHotelReturn ? 'opacity-80' : ''}`}>{!isHotelReturn && (<div className="w-24 h-24 sm:w-32 sm:h-32 flex-shrink-0 rounded-xl overflow-hidden bg-gray-800 border border-white/10 relative"><img src={`https://source.unsplash.com/300x300/?${act.image_keyword || act.title},travel`} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" alt={act.title} /><div className="absolute inset-0 bg-black/20 group-hover:bg-transparent transition-colors"></div></div>)}<div className={`flex-1 bg-white/5 border border-white/10 rounded-xl p-4 hover:bg-white/10 transition-all cursor-pointer ${isHotelReturn ? 'bg-blue-900/10 border-blue-500/20' : ''}`}><div className="flex justify-between items-start mb-2"><div className="flex items-center gap-2"><span className={`text-xs font-mono px-1.5 py-0.5 rounded ${isHotelReturn ? 'bg-blue-500/20 text-blue-300' : 'bg-gray-700 text-gray-300'}`}>{act.time}</span><h4 className={`font-bold text-white ${isChecked ? 'line-through text-gray-500' : ''}`}>{act.title}</h4></div><button onClick={(e) => { e.stopPropagation(); onToggleCheckIn(dayIdx, actIdx); }} className={`p-1 rounded-full transition-colors ${isChecked ? 'text-green-400' : 'text-gray-600 hover:text-white'}`}>{isChecked ? <CheckSquare size={16} /> : <CheckCircle2 size={16} />}</button></div><p className="text-sm text-gray-400 leading-relaxed line-clamp-2">{act.desc}</p>{isHotelReturn && <div className="mt-2 text-xs text-blue-400 flex items-center gap-1"><Hotel size={12} /> 住宿安排</div>}</div></div>); })}</div>
+                    <div className="mb-6 flex justify-between items-start"><div><h3 className="text-lg lg:text-xl font-bold text-white mb-1 flex items-center gap-2"><span className="text-blue-400">Day {day.day}</span> {safeRender(day.title)}</h3></div><div className="flex gap-2"><button onClick={() => onGenerateVlog(day)} className="group flex items-center gap-1.5 px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg transition-all text-xs font-medium text-gray-300 hover:text-white"><Video size={14} className="text-purple-400" /><span>脚本</span></button><button onClick={() => onGetTips(day)} className="group flex items-center gap-1.5 px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg transition-all text-xs font-medium text-gray-300 hover:text-white"><Lightbulb size={14} className="text-yellow-500" /><span>AI 攻略</span></button></div></div>
+                    <div className="space-y-6">{day.activities.map((act, actIdx) => { const isChecked = act.checked; const isHotelReturn = act.type === 'hotel' || act.title.includes('酒店') || act.title.includes('入住'); return (<div key={actIdx} onClick={() => onActivityClick(dayIdx, actIdx, act)} className={`group relative flex gap-4 ${isHotelReturn ? 'opacity-80' : ''}`}>{!isHotelReturn && (<div className="w-24 h-24 sm:w-32 sm:h-32 flex-shrink-0 rounded-xl overflow-hidden bg-gray-800 border border-white/10 relative"><img src={`https://source.unsplash.com/300x300/?${act.image_keyword || act.title},travel`} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" alt={act.title} /><div className="absolute inset-0 bg-black/20 group-hover:bg-transparent transition-colors"></div></div>)}<div className={`flex-1 bg-white/5 border border-white/10 rounded-xl p-4 hover:bg-white/10 transition-all cursor-pointer ${isHotelReturn ? 'bg-blue-900/10 border-blue-500/20' : ''}`}><div className="flex justify-between items-start mb-2"><div className="flex items-center gap-2"><span className={`text-xs font-mono px-1.5 py-0.5 rounded ${isHotelReturn ? 'bg-blue-500/20 text-blue-300' : 'bg-gray-700 text-gray-300'}`}>{safeRender(act.time)}</span><h4 className={`font-bold text-white ${isChecked ? 'line-through text-gray-500' : ''}`}>{safeRender(act.title)}</h4></div><button onClick={(e) => { e.stopPropagation(); onToggleCheckIn(dayIdx, actIdx); }} className={`p-1 rounded-full transition-colors ${isChecked ? 'text-green-400' : 'text-gray-600 hover:text-white'}`}>{isChecked ? <CheckSquare size={16} /> : <CheckCircle2 size={16} />}</button></div><p className="text-sm text-gray-400 leading-relaxed line-clamp-2">{safeRender(act.desc)}</p>{isHotelReturn && <div className="mt-2 text-xs text-blue-400 flex items-center gap-1"><Hotel size={12} /> 住宿安排</div>}</div></div>); })}</div>
                 </div>
             ))}
         </div>
@@ -435,7 +581,7 @@ export default function TravelMindApp() {
     const handleSend = async () => {
         if (!input.trim()) return;
         const userMsg = input; setInput(''); setMessages(prev => [...prev, { role: 'user', content: userMsg, isStreaming: false }]); setIsTyping(true);
-        const prompt = `User Request: "${userMsg}"\nCurrent Context: Destination is ${destination}.\nYou are "TravelMind". MANDATORY PLANNING RULES:\n1. BUDGET: Moderate/Economy (300-600 CNY/night).\n2. ACCOMMODATION: Explicitly include "Check-in" or "Return to hotel" each day. Recommend SPECIFIC hotel names.\n3. TRANSPORT: State START point for travel times.\n4. IMAGES: Provide short English "image_keyword".\nReturn JSON:\n{"chat_response": "...", "destination_detected": "...", "status_update": "Created", "weather_forecast": {"temp": "20°C", "condition": "Sunny"}, "itinerary": [{"day": 1, "title": "Theme", "activities": [{"time": "09:00", "title": "Place", "type": "sight", "desc": "...", "image_keyword": "..."}]}], "pois": [{"name": "Hotel", "type": "hotel", "price": "¥450", "tags": [], "rating": 4.6}]}`;
+        const prompt = `User Request: "${userMsg}"\nCurrent Context: Destination is ${destination}.\nYou are "TravelMind". MANDATORY PLANNING RULES:\n1. BUDGET: Moderate/Economy (300-600 CNY/night).\n2. ACCOMMODATION: Explicitly include "Check-in" or "Return to hotel" each day. Recommend SPECIFIC hotel names.\n3. TRANSPORT: State START point for travel times.\n4. IMAGES: Provide short English "image_keyword".\n5. COORDINATES: Provide lat/lng for each activity if possible, e.g., "lat": 39.9, "lng": 116.4.\nReturn JSON:\n{"chat_response": "...", "destination_detected": "...", "status_update": "Created", "weather_forecast": {"temp": "20°C", "condition": "Sunny"}, "itinerary": [{"day": 1, "title": "Theme", "activities": [{"time": "09:00", "title": "Place", "type": "sight", "desc": "...", "image_keyword": "...", "lat": 39.9, "lng": 116.4}]}], "pois": [{"name": "Hotel", "type": "hotel", "price": "¥450", "tags": [], "rating": 4.6}]}`;
         const data = await callGemini(prompt, true); setIsTyping(false);
         if (data) {
             const chatText = data.chat_response || "收到！"; setMessages(prev => [...prev, { role: 'ai', content: "", isStreaming: true }]); simulateStream(chatText, (chunk) => { setMessages(prev => { const last = prev[prev.length - 1]; if (last.role === 'ai' && last.isStreaming) { return [...prev.slice(0, -1), { ...last, content: last.content + chunk }]; } return prev; }); }, () => { setMessages(prev => { const last = prev[prev.length - 1]; return [...prev.slice(0, -1), { ...last, isStreaming: false }]; }); if (data.destination_detected) { setDestination(data.destination_detected); updateSidebarInfo(data.destination_detected); } if (data.status_update) setTripStatus(data.status_update); if (data.weather_forecast) setWeather(data.weather_forecast); if (data.itinerary && data.itinerary.length > 0) { setItineraryData(data.itinerary); setActiveTab('itinerary'); } if (data.pois && data.pois.length > 0) setPoiData(data.pois); });
@@ -501,7 +647,7 @@ export default function TravelMindApp() {
                 {/* 2. Middle Dashboard Column (Fluid) */}
                 <div className={`${mobileView === 'dashboard' ? 'flex' : 'hidden lg:flex'} flex-1 flex-col relative z-10 bg-gradient-to-br from-[#131620] to-[#0b0c12] min-w-0 pb-16 lg:pb-0`}>
                     <div className="h-16 border-b border-white/5 flex items-center justify-between px-4 lg:px-8 bg-white/2 flex-shrink-0">
-                        <div className="flex items-center gap-3"><h2 className="text-white font-semibold">{destination} 之旅</h2><span className="text-[10px] uppercase px-2 py-0.5 rounded-full border bg-emerald-500/20 text-emerald-400 border-emerald-500/20">{tripStatus}</span></div>
+                        <div className="flex items-center gap-3"><h2 className="text-white font-semibold">{safeRender(destination)} 之旅</h2><span className="text-[10px] uppercase px-2 py-0.5 rounded-full border bg-emerald-500/20 text-emerald-400 border-emerald-500/20">{safeRender(tripStatus)}</span></div>
                         {/* Top Icons Menu - Only visible on XL screens where sidebar is expanded, or as quick actions */}
                         <div className="hidden xl:flex items-center gap-2">
                             {[{ icon: Banknote, action: handleEstimateBudget, color: "emerald", label: "预算" }, { icon: Backpack, action: handleGeneratePackingList, color: "blue", label: "行李" }, { icon: Music, action: handleGeneratePlaylist, color: "violet", label: "歌单" }, { icon: Siren, action: handleGenerateEmergency, color: "red", label: "求助" }, { icon: ImageIcon, action: handleGeneratePoster, color: "sky", label: "海报" }].map((btn, i) => (
@@ -539,7 +685,7 @@ export default function TravelMindApp() {
                                     {poiData.length > 0 ? poiData.map((poi, idx) => (<div key={idx} className="group relative overflow-hidden rounded-2xl bg-gray-800 border border-white/10 shadow-xl hover:shadow-2xl transition-all duration-300 flex flex-col"><div className="h-40 bg-gray-700 relative overflow-hidden"><img src={`https://source.unsplash.com/600x400/?hotel,${poi.type},interior`} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" alt={poi.name} /><div className="absolute top-2 right-2 bg-black/60 backdrop-blur-sm px-2 py-1 rounded-lg flex items-center gap-1 text-xs font-bold text-yellow-400"><Star size={12} fill="currentColor" /> {poi.rating || "4.5"}</div></div><div className="p-4 flex-1 flex flex-col"><h3 className="font-bold text-white truncate">{poi.name}</h3><div className="flex items-center justify-between mt-2 mb-3"><span className="text-blue-400 font-mono font-bold">{poi.price || "¥350起"}</span><div className="flex gap-1 flex-wrap justify-end">{poi.tags && poi.tags.map((tag, i) => (<span key={i} className="text-[10px] bg-white/10 text-gray-300 px-1.5 py-0.5 rounded">{tag}</span>))}</div></div><button className="w-full mt-auto bg-white/5 hover:bg-blue-600 hover:text-white text-gray-300 py-2 rounded-lg text-xs font-medium transition-colors border border-white/10">查看详情</button></div></div>)) : <div className="text-center text-gray-500 py-10"><Hotel size={48} className="mx-auto mb-4 opacity-20" /><p>AI 正在根据您的预算搜索高性价比住宿...</p></div>}
                                 </div>
                             )}
-                            {activeTab === 'map' && <div className="h-[500px] bg-gray-800/50 rounded-3xl border border-white/10 flex items-center justify-center relative overflow-hidden group"><div className="absolute inset-0 bg-[url('https://api.mapbox.com/styles/v1/mapbox/dark-v10/static/120.15,30.28,11,0/800x600?access_token=pk.xxx')] bg-cover opacity-50 grayscale group-hover:grayscale-0 transition-all duration-700"></div><div className="relative z-10 text-center p-6 bg-black/40 backdrop-blur-md rounded-2xl border border-white/10"><MapIcon size={48} className="mx-auto text-blue-500 mb-4 animate-bounce" /><h3 className="text-xl font-bold text-white">地图模式预览</h3></div></div>}
+                            {activeTab === 'map' && <div className="h-[500px] bg-gray-800/50 rounded-3xl border border-white/10 flex items-center justify-center relative overflow-hidden group"><RealMap itinerary={itineraryData} destination={destination} /></div>}
                         </div>
                     </div>
                 </div>

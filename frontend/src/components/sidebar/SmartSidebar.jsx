@@ -110,17 +110,18 @@ const WeatherTrendWidget = ({ weatherData, destination }) => {
         return <CloudSun size={14} className="text-gray-400" />;
     };
 
-    const forecast = weatherData && weatherData.length > 0
-        ? weatherData
-        : [
-            { day: 'Mon', temp: '--', cond: '加载中' },
-            { day: 'Tue', temp: '--', cond: '...' },
-            { day: 'Wed', temp: '--', cond: '...' },
-            { day: 'Thu', temp: '--', cond: '...' },
-            { day: 'Fri', temp: '--', cond: '...' },
-        ];
+    if (!weatherData || weatherData.length === 0) {
+        return (
+            <div className="bg-[#1a1d2d]/90 border border-white/10 rounded-2xl p-4 animate-fadeIn flex items-center justify-center h-32">
+                <div className="text-gray-500 text-xs flex flex-col items-center gap-2">
+                    <CloudSun size={24} className="opacity-50" />
+                    <p>暂无天气信息</p>
+                </div>
+            </div>
+        );
+    }
 
-    const hasBadWeather = weatherData?.some(f => f.cond?.includes('雨') || f.cond?.includes('雪'));
+    const hasBadWeather = weatherData.some(f => f.cond?.includes('雨') || f.cond?.includes('雪'));
 
     return (
         <div className="bg-[#1a1d2d]/90 border border-white/10 rounded-2xl p-4 animate-fadeIn">
@@ -132,7 +133,7 @@ const WeatherTrendWidget = ({ weatherData, destination }) => {
             </div>
 
             <div className="space-y-3">
-                {forecast.map((f, i) => (
+                {weatherData.map((f, i) => (
                     <div key={i} className="flex items-center justify-between text-xs group">
                         <div className="w-8 text-gray-400">{f.day}</div>
                         <div className="flex-1 flex justify-center">{getIcon(f.cond)}</div>
@@ -216,16 +217,22 @@ const LocalNewsWidget = ({ newsData, onRefresh, isLoading }) => {
 
 // === 预算仪表盘 Widget ===
 const BudgetDashboardWidget = ({ budgetData }) => {
-    // 计算预算数据
-    const total = budgetData?.total || 5000;
-    const categories = budgetData?.categories || [
-        { name: '住宿 (3晚)', amount: '¥1032', icon: Hotel, color: 'text-blue-400' },
-        { name: '门票', amount: '¥860', icon: Ticket, color: 'text-yellow-400' },
-        { name: '交通', amount: '¥280', icon: Car, color: 'text-cyan-400' },
-        { name: '餐饮 (预估)', amount: '¥1200', icon: Utensils, color: 'text-orange-400' },
-    ];
+    // 如果没有预算数据，显示空状态
+    if (!budgetData) {
+        return (
+            <div className="bg-[#1a1d2d]/90 border border-white/10 rounded-2xl p-4 animate-fadeIn flex items-center justify-center h-48">
+                <div className="text-gray-500 text-xs flex flex-col items-center gap-2">
+                    <TrendingUp size={24} className="opacity-50" />
+                    <p>暂无预算数据</p>
+                </div>
+            </div>
+        );
+    }
 
-    const spent = 3372;
+    // 计算预算数据
+    const total = budgetData.total || 0;
+    const categories = budgetData.categories || [];
+    const spent = budgetData.spent || 0;
     const percent = total > 0 ? (spent / total) * 100 : 0;
 
     return (
@@ -259,19 +266,14 @@ const BudgetDashboardWidget = ({ budgetData }) => {
 
             {/* 分类支出 */}
             <div className="space-y-2">
-                {[
-                    { label: '住宿 (3晚)', val: '1032', icon: Hotel, color: 'text-blue-400' },
-                    { label: '门票', val: '860', icon: Ticket, color: 'text-yellow-400' },
-                    { label: '交通', val: '280', icon: Car, color: 'text-cyan-400' },
-                    { label: '餐饮 (预估)', val: '1200', icon: Utensils, color: 'text-orange-400' },
-                ].map((item, i) => (
+                {categories.length > 0 ? categories.map((item, i) => (
                     <div key={i} className="flex items-center justify-between bg-white/5 rounded px-2 py-1.5">
                         <div className="flex items-center gap-2 text-xs text-gray-300">
-                            <item.icon size={10} className={item.color} /> {item.label}
+                            <div className="w-2 h-2 rounded-full bg-blue-400"></div> {item.name || item.label}
                         </div>
-                        <div className="text-xs font-mono text-white">¥{item.val}</div>
+                        <div className="text-xs font-mono text-white">¥{item.val || item.amount}</div>
                     </div>
-                ))}
+                )) : <div className="text-center text-xs text-gray-500">暂无明细</div>}
             </div>
 
             <button className="w-full mt-3 text-[10px] text-gray-500 hover:text-white transition-colors text-right">
@@ -289,7 +291,7 @@ export function SmartSidebar({ isMobile, isDrawer, onClose, isCollapsed, onToggl
 
     // 获取侧边栏数据
     const fetchSidebarData = async () => {
-        if (!destination || destination === '未知目的地') return;
+        if (!destination) return;
 
         setIsLoading(true);
         try {
@@ -313,7 +315,7 @@ export function SmartSidebar({ isMobile, isDrawer, onClose, isCollapsed, onToggl
     };
 
     useEffect(() => {
-        if (destination && destination !== '未知目的地') {
+        if (destination) {
             fetchSidebarData();
         }
     }, [destination]);

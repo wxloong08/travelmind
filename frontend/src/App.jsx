@@ -146,7 +146,7 @@ function App() {
       )}
 
       {/* 左侧聊天区 */}
-      <div className={`${mobileView === 'chat' ? 'flex' : 'hidden lg:flex'} w-full lg:w-[280px] xl:w-[320px] flex-col border-r border-white/5 bg-gradient-to-b from-[#12141f] to-[#0f111a] relative z-20 flex-shrink-0 transition-all duration-300`}>
+      <div className={`${mobileView === 'chat' ? 'flex' : 'hidden lg:flex'} w-full lg:w-[280px] xl:w-[320px] 2xl:w-[25%] flex-col border-r border-white/5 bg-gradient-to-b from-[#12141f] to-[#0f111a] relative z-20 flex-shrink-0 transition-all duration-300`}>
         {/* 聊天头部 */}
         <div className="h-16 border-b border-white/5 flex items-center px-4 lg:px-6 gap-3 bg-white/2 backdrop-blur-md">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-purple-600 flex items-center justify-center shadow-lg shadow-blue-600/30">
@@ -196,21 +196,23 @@ function App() {
       </div>
 
       {/* 中间仪表盘 (自适应宽度) */}
-      <div className={`${mobileView === 'dashboard' ? 'flex' : 'hidden lg:flex'} flex-1 flex-col relative z-10 bg-gradient-to-br from-[#131620] to-[#0b0c12] min-w-0 pb-20 lg:pb-0`}>
+      <div className={`${mobileView === 'dashboard' ? 'flex' : 'hidden lg:flex'} flex-1 flex-col relative z-10 bg-gradient-to-br from-[#131620] to-[#0b0c12] min-w-0 pb-20 lg:pb-0 w-full`}>
         {/* 仪表盘头部 */}
         <div className="h-16 border-b border-white/5 flex items-center justify-between px-4 lg:px-8 bg-white/2">
           <div className="flex items-center gap-3 lg:gap-4 overflow-hidden">
             <h2 className="text-white font-semibold whitespace-nowrap">
-              {destination} 之旅
+              {destination ? `${destination} 之旅` : "TravelMind"}
             </h2>
-            <span
-              className={`text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full border ${tripStatus === 'Created'
-                ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/20'
-                : 'bg-blue-500/20 text-blue-400 border-blue-500/20'
-                }`}
-            >
-              {tripStatus}
-            </span>
+            {tripStatus && (
+              <span
+                className={`text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full border ${tripStatus === 'Created'
+                  ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/20'
+                  : 'bg-blue-500/20 text-blue-400 border-blue-500/20'
+                  }`}
+              >
+                {tripStatus}
+              </span>
+            )}
           </div>
 
           <div className="flex items-center gap-2 lg:gap-4">
@@ -245,18 +247,20 @@ function App() {
 
             {/* 天气 */}
             <div className="h-6 w-[1px] bg-white/10 mx-1 lg:mx-2 hidden sm:block" />
-            <div className="flex items-center gap-2 lg:gap-3 bg-white/5 px-3 py-1.5 rounded-full border border-white/10 backdrop-blur-md">
-              <CloudSun
-                size={18}
-                className={weather.condition?.includes('雨') ? 'text-gray-400' : 'text-yellow-400'}
-              />
-              <div>
-                <div className="text-xs lg:text-sm font-bold text-white">{weather.temp}</div>
-                <div className="text-[10px] text-gray-400 hidden sm:block">
-                  {destination}, {weather.condition}
+            {weather && (
+              <div className="flex items-center gap-2 lg:gap-3 bg-white/5 px-3 py-1.5 rounded-full border border-white/10 backdrop-blur-md">
+                <CloudSun
+                  size={18}
+                  className={weather.condition?.includes('雨') ? 'text-gray-400' : 'text-yellow-400'}
+                />
+                <div>
+                  <div className="text-xs lg:text-sm font-bold text-white">{weather.temp}</div>
+                  <div className="text-[10px] text-gray-400 hidden sm:block">
+                    {destination}, {weather.condition}
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
 
@@ -287,7 +291,7 @@ function App() {
         <div className="flex-1 overflow-y-auto p-4 lg:p-8 custom-scrollbar">
           {/* 行程 Tab */}
           {activeTab === 'itinerary' && (
-            <div className="max-w-3xl mx-auto lg:mx-0">
+            <div className="w-full h-full mx-auto lg:mx-0">
               {!hasItinerary ? (
                 <div className="flex flex-col items-center justify-center h-64 text-gray-500 border-2 border-dashed border-white/10 rounded-2xl">
                   <Sparkles size={32} className="mb-3 opacity-30" />
@@ -437,7 +441,7 @@ function App() {
       {/* 右侧侧边栏 - XL显示完整，LG显示折叠条 */}
 
       {/* 1. XL Screen: Full Sidebar */}
-      <div className="hidden xl:flex w-[320px] flex-col border-l border-white/5 relative z-10 bg-[#0f111a]/80 backdrop-blur-sm flex-shrink-0">
+      <div className="hidden xl:flex w-[320px] 2xl:w-[15%] flex-col border-l border-white/5 relative z-10 bg-[#0f111a]/80 backdrop-blur-sm flex-shrink-0">
         <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
           <SmartSidebar itinerary={itinerary} destination={destination} />
         </div>

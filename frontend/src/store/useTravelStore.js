@@ -23,7 +23,7 @@ export const useTravelStore = create(
         setDestination: (destination) => set({ destination }),
 
         // 旅行状态
-        tripStatus: 'Planning', // Planning | Created
+        tripStatus: '', // Planning | Created
         setTripStatus: (status) => set({ tripStatus: status }),
 
         // 天气信息
@@ -223,9 +223,9 @@ export const useTravelStore = create(
         // ============================================================
 
         resetTrip: () => set({
-          destination: '未知目的地',
-          tripStatus: 'Planning',
-          weather: { temp: '--', condition: '未知' },
+          destination: '',
+          tripStatus: '',
+          weather: null,
           itinerary: [],
           pois: [],
           cache: {
@@ -240,7 +240,7 @@ export const useTravelStore = create(
         }),
       }),
       {
-        name: 'travelmind-storage',
+        name: 'travelmind-storage-v2',
         partialize: (state) => ({
           // 只持久化部分状态
           destination: state.destination,
