@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import useTravelStore from '../../store/useTravelStore';
 
-const API_BASE = 'http://localhost:8000/api/v1';
+const API_BASE = '/api/v1';
 
 // === 今日路线 Widget ===
 const MiniMapWidget = ({ itinerary }) => {

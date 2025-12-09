@@ -72,7 +72,7 @@ class Settings(BaseSettings):
     # ===========================================================
     # CORS 配置【可选】
     # ===========================================================
-    cors_origins: list[str] = ["http://localhost:3000", "http://localhost:5173"]
+    cors_origins: list[str] = ["http://localhost:3000", "http://localhost:5173", "http://localhost:3001"]
 
     # ===========================================================
     # 以下为【预留】配置 - 当前版本未使用
