@@ -118,6 +118,10 @@ export const useTravelStore = create(
         pois: [],
         setPois: (pois) => set({ pois }),
 
+        // 预算数据（用于侧边栏显示）
+        budget: null,
+        setBudget: (budget) => set({ budget }),
+
         // ============================================================
         // AI 功能缓存
         // ============================================================
@@ -149,6 +153,7 @@ export const useTravelStore = create(
             souvenirs: null,
             photoChallenges: null,
           },
+          budget: null, // 同时清除侧边栏预算
         }),
 
         // ============================================================
@@ -228,6 +233,7 @@ export const useTravelStore = create(
           weather: null,
           itinerary: [],
           pois: [],
+          budget: null, // 清除预算
           cache: {
             budget: null,
             packing: null,

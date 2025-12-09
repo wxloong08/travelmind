@@ -16,6 +16,7 @@ export function useAiFeature() {
     itinerary,
     cache,
     setCache,
+    setBudget,
     openModal,
     setModalContent,
     setModalLoading,
@@ -54,6 +55,7 @@ export function useAiFeature() {
         `${weather.temp}, ${weather.condition}`
       );
       setCache('budget', result);
+      setBudget(result);  // 同步到侧边栏
       setModalContent(result);
     } catch (error) {
       console.error('Budget estimation failed:', error);

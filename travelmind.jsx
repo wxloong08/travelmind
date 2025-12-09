@@ -11,7 +11,7 @@ import {
     Wifi, Waves, Car, Dumbbell, UtensilsCrossed, BedDouble, Check, ThumbsUp, ThumbsDown,
     ShoppingBag, Feather, Aperture, Map, Video, Mic, Image as ImageIcon, CheckSquare, Download,
     PlayCircle, ExternalLink, Newspaper, TrendingUp, Sun, Moon, Umbrella, Wind, ChevronDown, Edit3,
-    BrainCircuit, ChevronLeft, ChevronRight as ChevronRightIcon, XCircle, Layers
+    BrainCircuit, ChevronLeft, ChevronRight as ChevronRightIcon, XCircle, Layers, FileText, ArrowDownCircle
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged, signOut, updateProfile, signInWithCustomToken } from 'firebase/auth';
@@ -145,50 +145,23 @@ const RealMap = ({ itinerary, destination }) => {
     const mapInstanceRef = useRef(null);
     const [isMapReady, setIsMapReady] = useState(false);
 
-    // Mock Coordinates for robustness if AI fails to return them
     const CITY_COORDS = {
-        "北京": [39.9042, 116.4074],
-        "上海": [31.2304, 121.4737],
-        "东京": [35.6762, 139.6503],
-        "大阪": [34.6937, 135.5023],
-        "三亚": [18.2528, 109.5119],
-        "成都": [30.5728, 104.0668],
-        "杭州": [30.2741, 120.1551],
-        "未知目的地": [39.9042, 116.4074]
+        "北京": [39.9042, 116.4074], "上海": [31.2304, 121.4737], "东京": [35.6762, 139.6503],
+        "大阪": [34.6937, 135.5023], "三亚": [18.2528, 109.5119], "成都": [30.5728, 104.0668],
+        "杭州": [30.2741, 120.1551], "未知目的地": [39.9042, 116.4074]
     };
 
     useEffect(() => {
-        // Dynamically load Leaflet CSS and JS using cdnjs for better stability
         const loadLeaflet = async () => {
-            if (window.L && typeof window.L.map === 'function') {
-                setIsMapReady(true);
-                return;
-            }
-
-            const link = document.createElement('link');
-            link.rel = 'stylesheet';
-            link.href = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css';
-            document.head.appendChild(link);
-
+            if (window.L && typeof window.L.map === 'function') { setIsMapReady(true); return; }
+            const link = document.createElement('link'); link.rel = 'stylesheet'; link.href = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css'; document.head.appendChild(link);
             await new Promise((resolve, reject) => {
-                const script = document.createElement('script');
-                script.src = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';
-                script.onload = () => {
-                    // Slight delay to ensure window.L is fully populated
-                    setTimeout(() => {
-                        if (window.L && typeof window.L.map === 'function') {
-                            resolve();
-                        } else {
-                            reject(new Error("Leaflet failed to initialize correctly"));
-                        }
-                    }, 100);
-                };
-                script.onerror = reject;
-                document.head.appendChild(script);
+                const script = document.createElement('script'); script.src = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';
+                script.onload = () => { setTimeout(() => { if (window.L && typeof window.L.map === 'function') { resolve(); } else { reject(new Error("Leaflet failed")); } }, 100); };
+                script.onerror = reject; document.head.appendChild(script);
             });
             setIsMapReady(true);
         };
-
         loadLeaflet().catch(err => console.error("Leaflet load error", err));
     }, []);
 
@@ -196,60 +169,26 @@ const RealMap = ({ itinerary, destination }) => {
         if (isMapReady && mapContainerRef.current && !mapInstanceRef.current && window.L && typeof window.L.map === 'function') {
             const defaultCenter = CITY_COORDS[destination] || CITY_COORDS["北京"];
             const map = window.L.map(mapContainerRef.current).setView(defaultCenter, 11);
-
-            // Dark Mode Tiles
-            window.L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-                subdomains: 'abcd',
-                maxZoom: 19
-            }).addTo(map);
-
+            window.L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { attribution: '&copy; OpenStreetMap & CARTO', subdomains: 'abcd', maxZoom: 19 }).addTo(map);
             mapInstanceRef.current = map;
         }
-
-        // Update markers when itinerary changes
         if (isMapReady && mapInstanceRef.current && itinerary.length > 0 && window.L) {
             const map = mapInstanceRef.current;
-
-            // Clear existing layers (except tiles)
-            map.eachLayer((layer) => {
-                if (layer instanceof window.L.Marker || layer instanceof window.L.Polyline) {
-                    map.removeLayer(layer);
-                }
-            });
-
-            // Add markers
+            map.eachLayer((layer) => { if (layer instanceof window.L.Marker || layer instanceof window.L.Polyline) { map.removeLayer(layer); } });
             const points = [];
             itinerary.forEach((day, dIdx) => {
                 day.activities.forEach((act, aIdx) => {
-                    // Try to use AI coords, or fuzzy offset from city center
                     const cityCenter = CITY_COORDS[destination] || CITY_COORDS["北京"];
-                    // Create a pseudo-random offset if no coords to simulate spread
-                    const offsetLat = (Math.random() - 0.5) * 0.1;
-                    const offsetLng = (Math.random() - 0.5) * 0.1;
-                    const lat = act.lat || (cityCenter[0] + offsetLat);
-                    const lng = act.lng || (cityCenter[1] + offsetLng);
-
+                    const offsetLat = (Math.random() - 0.5) * 0.1; const offsetLng = (Math.random() - 0.5) * 0.1;
+                    const lat = act.lat || (cityCenter[0] + offsetLat); const lng = act.lng || (cityCenter[1] + offsetLng);
                     if (lat && lng) {
                         points.push([lat, lng]);
-                        const color = dIdx % 2 === 0 ? '#3b82f6' : '#10b981'; // Blue or Green based on day
-
-                        // Custom Dot Icon
-                        const icon = window.L.divIcon({
-                            className: 'custom-div-icon',
-                            html: `<div style="background-color: ${color}; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white;"></div>`,
-                            iconSize: [12, 12],
-                            iconAnchor: [6, 6]
-                        });
-
-                        window.L.marker([lat, lng], { icon })
-                            .addTo(map)
-                            .bindPopup(`<b>Day ${day.day}</b><br>${act.title}`);
+                        const color = dIdx % 2 === 0 ? '#3b82f6' : '#10b981';
+                        const icon = window.L.divIcon({ className: 'custom-div-icon', html: `<div style="background-color: ${color}; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white;"></div>`, iconSize: [12, 12], iconAnchor: [6, 6] });
+                        window.L.marker([lat, lng], { icon }).addTo(map).bindPopup(`<b>Day ${day.day}</b><br>${act.title}`);
                     }
                 });
             });
-
-            // Draw line connecting points
             if (points.length > 1) {
                 window.L.polyline(points, { color: '#6366f1', weight: 3, opacity: 0.7, dashArray: '5, 10' }).addTo(map);
                 map.fitBounds(window.L.latLngBounds(points).pad(0.2));
@@ -261,13 +200,7 @@ const RealMap = ({ itinerary, destination }) => {
         <div className="h-full w-full rounded-3xl overflow-hidden border border-white/10 relative group">
             {!isMapReady && <div className="absolute inset-0 flex items-center justify-center bg-gray-900"><Loader2 className="animate-spin text-blue-500" /></div>}
             <div ref={mapContainerRef} className="w-full h-full z-0" style={{ minHeight: '400px' }}></div>
-            {/* Overlay Controls */}
-            <div className="absolute bottom-4 right-4 z-[400] flex flex-col gap-2">
-                <div className="bg-black/60 backdrop-blur px-3 py-1.5 rounded-lg text-xs text-white border border-white/10 flex items-center gap-2">
-                    <Layers size={14} />
-                    <span>OpenStreetMap</span>
-                </div>
-            </div>
+            <div className="absolute bottom-4 right-4 z-[400] flex flex-col gap-2"><div className="bg-black/60 backdrop-blur px-3 py-1.5 rounded-lg text-xs text-white border border-white/10 flex items-center gap-2"><Layers size={14} /> <span>OpenStreetMap</span></div></div>
         </div>
     );
 };
@@ -292,7 +225,7 @@ const PackingList = ({ data }) => {
         <div className="space-y-6">
             {data.special_tips && (<div className="bg-blue-900/20 border border-blue-500/20 p-4 rounded-xl mb-4"><h4 className="text-blue-300 font-bold mb-2 flex items-center gap-2"><Sparkles size={16} /> AI 特别提醒</h4><EnhancedMarkdown text={data.special_tips} /></div>)}
             {data.categories && data.categories.map((cat, catIdx) => (
-                <div key={catIdx} className="animate-fadeIn" style={{ animationDelay: `${catIdx * 100}ms` }}><h4 className="text-white font-semibold mb-3 border-l-4 border-purple-500 pl-3">{safeRender(cat.name)}</h4><div className="grid grid-cols-1 gap-3">{cat.items && cat.items.map((item, itemIdx) => { const isChecked = checkedItems[`${catIdx}-${itemIdx}`]; return (<div key={itemIdx} onClick={() => toggleItem(catIdx, itemIdx)} className={`flex items-start gap-3 p-3 rounded-lg border transition-all cursor-pointer ${isChecked ? 'bg-green-900/10 border-green-500/30' : 'bg-white/5 border-white/5 hover:bg-white/10'}`}><div className={`mt-0.5 transition-colors ${isChecked ? 'text-green-500' : 'text-gray-500'}`}>{isChecked ? <CheckCircle2 size={20} /> : <Circle size={20} />}</div><div className="flex-1"><div className={`font-medium text-sm transition-all ${isChecked ? 'text-gray-500 line-through' : 'text-gray-200'}`}>{safeRender(item.name)}</div>{item.reason && (<div className="text-xs text-gray-500 mt-1">{safeRender(item.reason)}</div>)}</div></div>); })}</div></div>
+                <div key={catIdx} className="animate-fadeIn" style={{ animationDelay: `${catIdx * 100}ms` }}><h4 className="text-white font-semibold mb-3 border-l-4 border-purple-500 pl-3">{safeRender(cat.name)}</h4><div className="grid grid-cols-1 gap-3">{cat.items && cat.items.map((item, itemIdx) => { const isChecked = checkedItems[`${catIdx}-${itemIdx}`]; return (<div key={itemIdx} onClick={() => toggleItem(catIdx, itemIdx)} className={`flex items-start gap-3 p-3 rounded-lg border transition-all cursor-pointer ${isChecked ? 'bg-green-900/10 border-green-500/30' : 'bg-white/5 border-white/10'}`}><div className={`mt-0.5 transition-colors ${isChecked ? 'text-green-500' : 'text-gray-500'}`}>{isChecked ? <CheckCircle2 size={20} /> : <Circle size={20} />}</div><div className="flex-1"><div className={`font-medium text-sm transition-all ${isChecked ? 'text-gray-500 line-through' : 'text-gray-200'}`}>{safeRender(item.name)}</div>{item.reason && (<div className="text-xs text-gray-500 mt-1">{safeRender(item.reason)}</div>)}</div></div>); })}</div></div>
             ))}
         </div>
     );
@@ -306,14 +239,15 @@ const PlaylistView = ({ data }) => {
         <div className="space-y-6"><div className="bg-gradient-to-r from-violet-900/40 to-fuchsia-900/40 border border-violet-500/20 rounded-2xl p-6 relative overflow-hidden"><div className="relative z-10"><h3 className="text-violet-200 font-bold text-lg mb-1">{safeRender(data.vibe_title)}</h3><p className="text-gray-400 text-sm">{safeRender(data.vibe_desc)}</p><button onClick={handleCopyPlaylist} className="mt-4 flex items-center gap-2 bg-white/10 hover:bg-white/20 border border-white/10 px-3 py-1.5 rounded-lg text-xs text-white transition-all">{copied ? <CheckCircle2 size={12} className="text-green-400" /> : <Copy size={12} />}{copied ? "已复制" : "复制歌单"}</button></div><Music className="absolute right-4 bottom-4 text-violet-500/20 w-24 h-24 rotate-12" /></div><div className="space-y-3">{data.songs && data.songs.map((song, i) => (<div key={i} className="flex items-center gap-3 p-3 bg-white/5 hover:bg-white/10 rounded-xl transition-colors border border-white/5 group"><div className="w-8 h-8 bg-gray-800 rounded-lg flex items-center justify-center text-gray-500 font-bold text-xs group-hover:text-violet-400 transition-colors shrink-0">{i + 1}</div><div className="flex-1 min-w-0"><div className="font-medium text-gray-200 truncate text-sm">{safeRender(song.title)}</div><div className="text-xs text-gray-500 truncate">{safeRender(song.artist)}</div></div><div className="flex items-center gap-2 opacity-60 group-hover:opacity-100 transition-opacity"><button onClick={() => openMusicSearch('netease', song)} className="px-2 py-1 bg-red-600/20 hover:bg-red-600/40 text-red-400 rounded text-[10px] border border-red-500/30 font-medium">网易</button><button onClick={() => openMusicSearch('qq', song)} className="px-2 py-1 bg-green-600/20 hover:bg-green-600/40 text-green-400 rounded text-[10px] border border-green-500/30 font-medium">QQ</button></div></div>))}</div></div>
     );
 };
+// FIX: Added safe access to data.categories for the Modal View
 const BudgetView = ({ data }) => {
     if (!data) return <div className="text-center text-gray-500">无法获取预算数据</div>;
     return (
         <div className="space-y-6">
             <div className="bg-gradient-to-r from-emerald-900/30 to-teal-900/30 border border-emerald-500/20 rounded-2xl p-6 text-center"><h3 className="text-gray-400 text-sm mb-1 uppercase tracking-wider">预估总花费</h3><div className="text-4xl font-bold text-white text-shadow-lg">{safeRender(data.total_range)}</div></div>
-            {data.categories && data.categories.length > 0 && (
+            {data.categories && data.categories.length > 0 ? (
                 <div className="space-y-3"><h4 className="text-white font-semibold flex items-center gap-2"><Banknote size={18} className="text-emerald-400" /> 费用明细</h4>{data.categories.map((cat, i) => (<div key={i} className="bg-white/5 border border-white/5 rounded-xl p-4 flex justify-between items-center"><div><div className="text-gray-200 font-medium">{safeRender(cat.name)}</div><div className="text-xs text-gray-500 mt-0.5">{safeRender(cat.desc)}</div></div><div className="text-emerald-300 font-mono font-bold">{safeRender(cat.amount)}</div></div>))}</div>
-            )}
+            ) : <div className="text-center text-gray-500 text-xs py-2">暂无详细分类数据</div>}
             <div className="bg-blue-900/10 border border-blue-500/10 p-4 rounded-xl"><h4 className="text-blue-300 font-bold mb-2 flex items-center gap-2 text-sm"><Zap size={14} /> 省钱小妙招</h4><p className="text-sm text-gray-300 leading-relaxed">{safeRender(data.saving_tip)}</p></div>
         </div>
     );
@@ -417,22 +351,107 @@ const LocalNewsWidget = ({ newsData, onRefresh, isLoading }) => (
     </div>
 );
 
-const BudgetDashboardWidget = ({ budgetData }) => {
-    const total = budgetData ? 5000 : 0; const spent = budgetData ? 3372 : 0; const percent = total > 0 ? (spent / total) * 100 : 0;
+// --- NEW: Budget Dashboard with Interactions ---
+const BudgetDashboardWidget = ({ budgetData, onAutoOptimize }) => {
+    // State for interactions
+    const [userBudget, setUserBudget] = useState(0);
+
+    // Parse numeric values from AI data if available
+    const estimatedTotal = budgetData ? (budgetData.total_amount || 3372) : 0;
+    const categories = budgetData && budgetData.categories ? budgetData.categories : [];
+
+    // If user hasn't set a budget, default to AI estimate + 20% buffer or 5000 fallback
+    const totalBudget = userBudget > 0 ? userBudget : (budgetData ? Math.ceil(estimatedTotal * 1.2) : 5000);
+
+    // Calculate spent/planned
+    const planned = estimatedTotal;
+    const percent = totalBudget > 0 ? (planned / totalBudget) * 100 : 0;
+    const remaining = totalBudget - planned;
+
+    const handleEdit = () => {
+        const newBudget = prompt("请输入您的总预算 (CNY):", totalBudget);
+        if (newBudget && !isNaN(newBudget)) {
+            setUserBudget(parseInt(newBudget));
+        }
+    };
+
+    const handleExport = () => {
+        const text = `预算明细:\n总预算: ¥${totalBudget}\n已规划: ¥${planned}\n剩余: ¥${remaining}\n\n明细:\n${categories.map(c => `${c.name}: ¥${c.amount}`).join('\n')}`;
+        copyToClipboard(text, () => alert("预算明细已复制到剪贴板！"), () => alert("复制失败"));
+    };
+
+    if (!budgetData) {
+        return (
+            <div className="bg-[#1a1d2d]/90 border border-white/10 rounded-2xl p-4 animate-fadeIn">
+                <div className="flex justify-between items-center mb-4"><h4 className="font-bold text-white text-sm flex items-center gap-2"><TrendingUp size={14} className="text-emerald-400" /> 预算仪表盘</h4></div>
+                <div className="text-center py-6 text-xs text-gray-500">
+                    <p>暂无数据</p>
+                    <p className="mt-1">请点击顶部 <span className="text-emerald-400">💰 预算</span> 按钮生成</p>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="bg-[#1a1d2d]/90 border border-white/10 rounded-2xl p-4 animate-fadeIn">
-            <div className="flex justify-between items-center mb-4"><h4 className="font-bold text-white text-sm flex items-center gap-2"><TrendingUp size={14} className="text-emerald-400" /> 预算仪表盘</h4><button className="text-gray-500 hover:text-white transition-colors"><Edit3 size={12} /></button></div>
-            <div className="mb-4"><div className="flex justify-between text-xs mb-1.5"><span className="text-gray-400">总预算</span><span className="text-white font-mono font-bold">¥{total}</span></div><div className="h-2 bg-gray-700 rounded-full overflow-hidden"><div className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full transition-all duration-1000" style={{ width: `${percent}%` }}></div></div><div className="flex justify-between text-[10px] mt-1.5"><span className="text-emerald-400">{Math.round(percent)}% 已规划</span><span className="text-gray-500">剩余 ¥{total - spent}</span></div></div>
-            <div className="space-y-2">
-                {[{ label: "住宿 (3晚)", val: "1032", icon: Hotel, color: "text-blue-400" }, { label: "门票", val: "860", icon: Ticket, color: "text-yellow-400" }, { label: "交通", val: "280", icon: Car, color: "text-cyan-400" }, { label: "餐饮 (预估)", val: "1200", icon: Utensils, color: "text-orange-400" }].map((item, i) => (<div key={i} className="flex items-center justify-between bg-white/5 rounded px-2 py-1.5"><div className="flex items-center gap-2 text-xs text-gray-300"><item.icon size={10} className={item.color} /> {item.label}</div><div className="text-xs font-mono text-white">¥{item.val}</div></div>))}
+            <div className="flex justify-between items-center mb-4">
+                <h4 className="font-bold text-white text-sm flex items-center gap-2"><TrendingUp size={14} className="text-emerald-400" /> 预算仪表盘</h4>
+                <button onClick={handleEdit} className="text-gray-500 hover:text-white transition-colors" title="修改总预算"><Edit3 size={12} /></button>
             </div>
-            <button className="w-full mt-3 text-[10px] text-gray-500 hover:text-white transition-colors text-right">导出费用明细 →</button>
+
+            <div className="mb-4">
+                <div className="flex justify-between text-xs mb-1.5">
+                    <span className="text-gray-400">总预算</span>
+                    <span className="text-white font-mono font-bold">¥{totalBudget}</span>
+                </div>
+                <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
+                    <div className={`h-full rounded-full transition-all duration-1000 ${percent > 100 ? 'bg-red-500' : 'bg-gradient-to-r from-emerald-500 to-teal-400'}`} style={{ width: `${Math.min(percent, 100)}%` }}></div>
+                </div>
+                <div className="flex justify-between text-[10px] mt-1.5">
+                    <span className={`${percent > 100 ? 'text-red-400' : 'text-emerald-400'}`}>{Math.round(percent)}% 已规划</span>
+                    <span className="text-gray-500">{remaining >= 0 ? `剩余 ¥${remaining}` : `超支 ¥${Math.abs(remaining)}`}</span>
+                </div>
+            </div>
+
+            {/* Over Budget Alert Logic */}
+            {percent > 100 && (
+                <div className="mb-3 bg-red-900/20 border border-red-500/30 rounded p-2 flex items-center justify-between">
+                    <div className="flex gap-2 items-center text-red-300 text-[10px]">
+                        <AlertTriangle size={12} /> 预算超支
+                    </div>
+                    <button
+                        onClick={() => onAutoOptimize(totalBudget)}
+                        className="text-[10px] bg-red-500 hover:bg-red-600 text-white px-2 py-0.5 rounded flex items-center gap-1 transition-colors"
+                    >
+                        <ArrowDownCircle size={10} /> 智能调优
+                    </button>
+                </div>
+            )}
+
+            <div className="space-y-2">
+                {categories.map((item, i) => (
+                    <div key={i} className="flex items-center justify-between bg-white/5 rounded px-2 py-1.5">
+                        <div className="flex items-center gap-2 text-xs text-gray-300">
+                            {item.name.includes("住") ? <Hotel size={10} className="text-blue-400" /> :
+                                item.name.includes("吃") || item.name.includes("餐") ? <Utensils size={10} className="text-orange-400" /> :
+                                    item.name.includes("行") || item.name.includes("通") ? <Car size={10} className="text-cyan-400" /> :
+                                        <Ticket size={10} className="text-yellow-400" />}
+                            {safeRender(item.name)}
+                        </div>
+                        <div className="text-xs font-mono text-white">¥{safeRender(item.amount)}</div>
+                    </div>
+                ))}
+            </div>
+
+            <button onClick={handleExport} className="w-full mt-3 text-[10px] text-gray-500 hover:text-white transition-colors text-right flex items-center justify-end gap-1">
+                <FileText size={10} /> 导出费用明细 →
+            </button>
         </div>
     );
 };
 
 // --- Smart Sidebar & Layout Controller ---
-const SmartSidebar = ({ destination, itinerary, budget, sidebarInfo, onRefreshSidebar, isSidebarLoading, isMobile, isDrawer, onClose }) => {
+const SmartSidebar = ({ destination, itinerary, budget, sidebarInfo, onRefreshSidebar, isSidebarLoading, isMobile, isDrawer, onClose, onAutoOptimizeBudget }) => {
     return (
         <div className={`flex flex-col gap-4 animate-fadeIn ${isMobile || isDrawer ? 'pb-20' : 'sticky top-4 h-[calc(100vh-8rem)] overflow-y-auto custom-scrollbar pr-2'}`}>
             {(isMobile || isDrawer) && (
@@ -447,7 +466,7 @@ const SmartSidebar = ({ destination, itinerary, budget, sidebarInfo, onRefreshSi
             <MiniMapWidget itinerary={itinerary} />
             <WeatherTrendWidget weatherData={sidebarInfo?.forecast} destination={destination} />
             <LocalNewsWidget newsData={sidebarInfo?.news} onRefresh={() => onRefreshSidebar(destination)} isLoading={isSidebarLoading} />
-            <BudgetDashboardWidget budgetData={budget} />
+            <BudgetDashboardWidget budgetData={budget} onAutoOptimize={onAutoOptimizeBudget} />
         </div>
     );
 };
@@ -508,16 +527,15 @@ const ItineraryTimeline = ({ days, onGetTips, onActivityClick, onGetDiary, onTog
 // --- Main App Component ---
 
 export default function TravelMindApp() {
+    // ... (State declarations same as before) ...
     const [user, setUser] = useState(null);
     const [loadingAuth, setLoadingAuth] = useState(true);
     const [input, setInput] = useState('');
     const [messages, setMessages] = useState([{ role: 'ai', content: '你好！我是 TravelMind。你的智能行程管家。\n\n请告诉我你想去哪里，玩几天？\n例如："帮我规划一个北京4天3晚的亲子游，想去环球影城"', isStreaming: false }]);
     const [isTyping, setIsTyping] = useState(false);
     const [activeTab, setActiveTab] = useState('itinerary');
-    const [mobileView, setMobileView] = useState('chat'); // 'chat' | 'dashboard' | 'sidebar'
-    const [showSidebarDrawer, setShowSidebarDrawer] = useState(false); // For Tablet/LG Screens
-
-    // Core Data & Modals State
+    const [mobileView, setMobileView] = useState('chat');
+    const [showSidebarDrawer, setShowSidebarDrawer] = useState(false);
     const [itineraryData, setItineraryData] = useState([]);
     const [poiData, setPoiData] = useState([]);
     const [destination, setDestination] = useState("未知目的地");
@@ -525,7 +543,6 @@ export default function TravelMindApp() {
     const [weather, setWeather] = useState({ temp: "--", condition: "未知" });
     const [sidebarInfo, setSidebarInfo] = useState({ forecast: [], news: [] });
     const [isSidebarLoading, setIsSidebarLoading] = useState(false);
-
     const [packingListData, setPackingListData] = useState(null);
     const [budgetData, setBudgetData] = useState(null);
     const [playlistData, setPlaylistData] = useState(null);
@@ -553,44 +570,51 @@ export default function TravelMindApp() {
     const updateSidebarInfo = async (dest) => {
         if (!dest || dest === "未知目的地") return;
         setIsSidebarLoading(true);
-        const prompt = `
-            You are a local travel expert for "${dest}". 
-            Task: Generate real-time travel dashboard data.
-            Return ONLY JSON with this structure:
-            {
-                "forecast": [
-                    {"day": "Mon", "temp": 22, "cond": "Sunny"},
-                    {"day": "Tue", "temp": 20, "cond": "Cloudy"},
-                    {"day": "Wed", "temp": 18, "cond": "Rain"},
-                    {"day": "Thu", "temp": 21, "cond": "Sunny"},
-                    {"day": "Fri", "temp": 23, "cond": "Cloudy"}
-                ],
-                "news": [
-                    {"title": "Breaking travel news/event for ${dest} (max 15 chars)", "tag": "Event"},
-                    {"title": "Important safety or transport warning (max 15 chars)", "tag": "Warning"},
-                    {"title": "Useful local tip (max 15 chars)", "tag": "Info"}
-                ]
-            }
-            Make sure the weather is realistic for the current season in ${dest}.
-        `;
+        const prompt = `You are a local travel expert for "${dest}". Task: Generate real-time travel dashboard data. Return ONLY JSON: {"forecast": [{"day": "Mon", "temp": 22, "cond": "Sunny"}, ...], "news": [{"title": "Headline", "tag": "Event"}]}`;
         const data = await callGemini(prompt, true);
         if (data) { setSidebarInfo(data); }
         setIsSidebarLoading(false);
     };
 
-    const handleSend = async () => {
-        if (!input.trim()) return;
-        const userMsg = input; setInput(''); setMessages(prev => [...prev, { role: 'user', content: userMsg, isStreaming: false }]); setIsTyping(true);
-        const prompt = `User Request: "${userMsg}"\nCurrent Context: Destination is ${destination}.\nYou are "TravelMind". MANDATORY PLANNING RULES:\n1. BUDGET: Moderate/Economy (300-600 CNY/night).\n2. ACCOMMODATION: Explicitly include "Check-in" or "Return to hotel" each day. Recommend SPECIFIC hotel names.\n3. TRANSPORT: State START point for travel times.\n4. IMAGES: Provide short English "image_keyword".\n5. COORDINATES: Provide lat/lng for each activity if possible, e.g., "lat": 39.9, "lng": 116.4.\nReturn JSON:\n{"chat_response": "...", "destination_detected": "...", "status_update": "Created", "weather_forecast": {"temp": "20°C", "condition": "Sunny"}, "itinerary": [{"day": 1, "title": "Theme", "activities": [{"time": "09:00", "title": "Place", "type": "sight", "desc": "...", "image_keyword": "...", "lat": 39.9, "lng": 116.4}]}], "pois": [{"name": "Hotel", "type": "hotel", "price": "¥450", "tags": [], "rating": 4.6}]}`;
-        const data = await callGemini(prompt, true); setIsTyping(false);
+    // --- NEW: Handle Auto-Optimize from Dashboard ---
+    const handleAutoOptimizeBudget = (targetBudget) => {
+        const instruction = `当前规划超支了。我的总预算只有 ¥${targetBudget}。请重新调整行程，将住宿降级为更经济的选项（如快捷酒店），并减少打车，改用公共交通。保持天数不变。`;
+        setInput(instruction); // Visual feedback
+        handleSend(instruction); // Trigger AI logic
+    };
+
+    const handleSend = async (overrideInput) => {
+        const textToSend = overrideInput || input;
+        if (!textToSend.trim()) return;
+        if (!overrideInput) setInput('');
+
+        setMessages(prev => [...prev, { role: 'user', content: textToSend, isStreaming: false }]);
+        setIsTyping(true);
+
+        const prompt = `User Request: "${textToSend}"\nCurrent Context: Destination is ${destination}.\nYou are "TravelMind". MANDATORY PLANNING RULES:\n1. BUDGET: Moderate/Economy (300-600 CNY/night).\n2. ACCOMMODATION: Explicitly include "Check-in" or "Return to hotel" each day. Recommend SPECIFIC hotel names.\n3. TRANSPORT: State START point for travel times.\n4. IMAGES: Provide short English "image_keyword".\n5. COORDINATES: Provide lat/lng for each activity if possible, e.g., "lat": 39.9, "lng": 116.4.\nReturn JSON:\n{"chat_response": "...", "destination_detected": "...", "status_update": "Created", "weather_forecast": {"temp": "20°C", "condition": "Sunny"}, "itinerary": [{"day": 1, "title": "Theme", "activities": [{"time": "09:00", "title": "Place", "type": "sight", "desc": "...", "image_keyword": "...", "lat": 39.9, "lng": 116.4}]}], "pois": [{"name": "Hotel", "type": "hotel", "price": "¥450", "tags": [], "rating": 4.6}]}`;
+
+        const data = await callGemini(prompt, true);
+        setIsTyping(false);
         if (data) {
             const chatText = data.chat_response || "收到！"; setMessages(prev => [...prev, { role: 'ai', content: "", isStreaming: true }]); simulateStream(chatText, (chunk) => { setMessages(prev => { const last = prev[prev.length - 1]; if (last.role === 'ai' && last.isStreaming) { return [...prev.slice(0, -1), { ...last, content: last.content + chunk }]; } return prev; }); }, () => { setMessages(prev => { const last = prev[prev.length - 1]; return [...prev.slice(0, -1), { ...last, isStreaming: false }]; }); if (data.destination_detected) { setDestination(data.destination_detected); updateSidebarInfo(data.destination_detected); } if (data.status_update) setTripStatus(data.status_update); if (data.weather_forecast) setWeather(data.weather_forecast); if (data.itinerary && data.itinerary.length > 0) { setItineraryData(data.itinerary); setActiveTab('itinerary'); } if (data.pois && data.pois.length > 0) setPoiData(data.pois); });
+            // Refresh budget estimate automatically after new plan
+            handleEstimateBudget();
         } else { setMessages(prev => [...prev, { role: 'ai', content: "网络开小差了，请重试一下。", isStreaming: false }]); }
     };
 
+    // ... (Rest of handlers: handleGetDayTips, handleEstimateBudget, etc. kept same) ...
     const handleGetDayTips = async (day) => { setCurrentDayForTip(day); setModalTitle(`${day.title} - AI 攻略`); setModalContentType('tips'); setIsModalOpen(true); setIsGeminiLoading(true); const data = await callGemini(`Tips for ${day.title} in ${destination}`, true); if (data) setModalContent(data); setIsGeminiLoading(false); };
     const handleGeneratePackingList = async () => { setModalTitle("🎒 智能行李清单"); setModalContentType('packing'); setIsModalOpen(true); setIsGeminiLoading(true); const data = await callGemini(`Packing list for ${destination}`, true); if (data) setModalContent(data); setIsGeminiLoading(false); };
-    const handleEstimateBudget = async () => { setModalTitle("💰 智能预算估算"); setModalContentType('budget'); setIsModalOpen(true); setIsGeminiLoading(true); const data = await callGemini(`Budget for ${destination}`, true); if (data) { setBudgetData(data); setModalContent(data); } setIsGeminiLoading(false); };
+    const handleEstimateBudget = async () => {
+        setModalTitle("💰 智能预算估算");
+        setModalContentType('budget');
+        setIsModalOpen(true);
+        setIsGeminiLoading(true);
+        const prompt = `Estimate budget for trip to ${destination}. Return JSON: { "total_range": "2000-3000", "total_amount": 3500, "categories": [{ "name": "住宿", "amount": 1200, "desc": "3 nights" }, { "name": "餐饮", "amount": 800, "desc": "Food" }, { "name": "交通", "amount": 500, "desc": "Transit" }, { "name": "门票", "amount": 600, "desc": "Tickets" }, { "name": "其他", "amount": 400, "desc": "Misc" }], "saving_tip": "Tips..." }`;
+        const data = await callGemini(prompt, true);
+        if (data) { setBudgetData(data); setModalContent(data); }
+        setIsGeminiLoading(false);
+    };
     const handleGeneratePlaylist = async () => { setModalTitle("🎵 AI 氛围歌单"); setModalContentType('playlist'); setIsModalOpen(true); setIsGeminiLoading(true); const data = await callGemini(`Playlist for ${destination}`, true); if (data) setModalContent(data); setIsGeminiLoading(false); };
     const handleGenerateEmergency = async () => { setModalTitle("🆘 智能紧急助手"); setModalContentType('emergency'); setIsModalOpen(true); setIsGeminiLoading(true); const data = await callGemini(`Emergency info for ${destination}`, true); if (data) setModalContent(data); setIsGeminiLoading(false); };
     const handleGenerateCulture = async () => { setModalTitle("🌍 本地文化锦囊"); setModalContentType('culture'); setIsModalOpen(true); setIsGeminiLoading(true); const data = await callGemini(`Culture guide for ${destination}`, true); if (data) setModalContent(data); setIsGeminiLoading(false); };
@@ -600,7 +624,23 @@ export default function TravelMindApp() {
     const handleGenerateDiary = async (day) => { setModalTitle(`📝 ${day.title} - 旅行日记`); setModalContentType('diary'); setIsModalOpen(true); setModalContent(null); setIsGeminiLoading(true); const prompt = `Write a first-person travel diary entry for Day ${day.day} in ${destination}. Activities: ${day.activities.map(a => a.title).join(', ')}. Tone: Emotional, vivid, and personal (in Chinese). Format: Markdown.`; const text = await callGemini(prompt, false); setModalContent(text); setIsGeminiLoading(false); };
     const handleGeneratePoster = async () => { setModalTitle("🖼️ 分享海报预览"); setModalContentType('poster'); setIsModalOpen(true); setIsGeminiLoading(true); const data = await callGemini(`Poster content for ${destination}`, true); if (data) setModalContent(data); setIsGeminiLoading(false); };
 
-    const handleLogin = async () => { setLoadingAuth(true); try { if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) { await signInWithCustomToken(auth, __initial_auth_token); } else { await signInAnonymously(auth); } } catch (error) { console.error("Login failed", error); setLoadingAuth(false); } };
+    // ... (Auth & UI Handlers kept same) ...
+
+    // RE-ADDED MISSING HANDLE LOGIN FUNCTION
+    const handleLogin = async () => {
+        setLoadingAuth(true);
+        try {
+            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                await signInWithCustomToken(auth, __initial_auth_token);
+            } else {
+                await signInAnonymously(auth);
+            }
+        } catch (error) {
+            console.error("Login failed", error);
+            setLoadingAuth(false);
+        }
+    };
+
     const handleLogout = async () => await signOut(auth);
     const handleVoiceInput = () => { if (isListening) { recognitionRef.current?.stop(); setIsListening(false); return; } const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition; if (!SpeechRecognition) { alert("浏览器不支持"); return; } const recognition = new SpeechRecognition(); recognition.lang = 'zh-CN'; recognition.onstart = () => setIsListening(true); recognition.onend = () => setIsListening(false); recognition.onresult = (e) => setInput(e.results[0][0].transcript); recognitionRef.current = recognition; recognition.start(); };
     const handleActivityClick = (dayIdx, actIdx, act) => { setSelectedActivityPath({ type: 'itinerary', dayIdx, actIdx }); setSelectedActivity(act); setDetailModalOpen(true); };
@@ -615,58 +655,44 @@ export default function TravelMindApp() {
             <GeminiModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={modalTitle} content={modalContent} contentType={modalContentType} isLoading={isGeminiLoading} onRegenerate={handleRegenerate} />
             <ActivityDetailModal isOpen={detailModalOpen} onClose={() => setDetailModalOpen(false)} activity={selectedActivity} destination={destination} />
 
-            {/* Background */}
             <div className="fixed top-0 left-0 w-full h-full pointer-events-none overflow-hidden z-0"><div className="absolute top-[-10%] left-[-10%] w-[500px] h-[500px] bg-purple-900/10 rounded-full blur-[120px]"></div><div className="absolute bottom-[-10%] right-[-10%] w-[600px] h-[600px] bg-blue-900/10 rounded-full blur-[120px]"></div></div>
 
-            {/* Mobile Nav - UPDATED with 3 Tabs */}
+            {/* Mobile Nav */}
             <div className="lg:hidden fixed bottom-0 left-0 w-full h-16 bg-[#131520] border-t border-white/10 z-50 flex justify-around items-center px-2 safe-area-bottom">
                 <button onClick={() => setMobileView('chat')} className={`flex flex-col items-center p-2 ${mobileView === 'chat' ? 'text-blue-400' : 'text-gray-500'}`}><MessageSquare size={20} /><span className="text-[10px] mt-1">聊天</span></button>
                 <button onClick={() => setMobileView('dashboard')} className={`flex flex-col items-center p-2 ${mobileView === 'dashboard' ? 'text-blue-400' : 'text-gray-500'}`}><Layout size={20} /><span className="text-[10px] mt-1">行程</span></button>
                 <button onClick={() => setMobileView('sidebar')} className={`flex flex-col items-center p-2 ${mobileView === 'sidebar' ? 'text-blue-400' : 'text-gray-500'}`}><BrainCircuit size={20} /><span className="text-[10px] mt-1">智囊</span></button>
             </div>
 
-            {/* Sidebar Overlay for LG screens (Drawer) */}
+            {/* Sidebar Overlay for LG */}
             {showSidebarDrawer && (
                 <div className="fixed inset-0 z-[60] bg-black/50 backdrop-blur-sm lg:flex xl:hidden" onClick={() => setShowSidebarDrawer(false)}>
                     <div className="absolute right-0 top-0 h-full w-80 bg-[#0f111a] border-l border-white/10 shadow-2xl p-4 overflow-y-auto" onClick={e => e.stopPropagation()}>
-                        <SmartSidebar destination={destination} weather={weather} itinerary={itineraryData} budget={budgetData} sidebarInfo={sidebarInfo} onRefreshSidebar={updateSidebarInfo} isSidebarLoading={isSidebarLoading} isDrawer={true} onClose={() => setShowSidebarDrawer(false)} />
+                        <SmartSidebar destination={destination} weather={weather} itinerary={itineraryData} budget={budgetData} sidebarInfo={sidebarInfo} onRefreshSidebar={updateSidebarInfo} isSidebarLoading={isSidebarLoading} isDrawer={true} onClose={() => setShowSidebarDrawer(false)} onAutoOptimizeBudget={handleAutoOptimizeBudget} />
                     </div>
                 </div>
             )}
 
-            {/* Layout Container */}
             <div className="flex w-full h-full">
-
-                {/* 1. Left Chat Column (Fixed Width on Large Screens) */}
+                {/* Left Chat */}
                 <div className={`${mobileView === 'chat' ? 'flex' : 'hidden lg:flex'} w-full lg:w-[280px] xl:w-[320px] flex-col border-r border-white/5 relative z-10 bg-[#0f111a]/50 backdrop-blur-sm flex-shrink-0 transition-all duration-300`}>
                     <div className="h-16 border-b border-white/5 flex items-center justify-between px-6 bg-white/5 backdrop-blur-md"><div className="flex items-center gap-2"><div className="bg-gradient-to-br from-blue-500 to-purple-600 p-1.5 rounded-lg"><Navigation size={18} className="text-white" /></div><span className="font-bold text-lg tracking-tight text-white">TravelMind</span></div><button onClick={handleLogout} className="p-2 hover:bg-red-500/10 hover:text-red-400 text-gray-400 rounded-full"><LogOut size={18} /></button></div>
                     <div className="flex-1 overflow-y-auto p-4 custom-scrollbar pb-24 lg:pb-4">{messages.map((msg, i) => <ChatMessage key={i} {...msg} />)}{isTyping && <ChatMessage role="ai" content="" isTyping={true} isStreaming={true} />}<div ref={messagesEndRef} /></div>
-                    <div className="p-4 border-t border-white/5 bg-[#0f111a] lg:pb-4 pb-20"><div className="relative flex items-center bg-white/5 border border-white/10 rounded-2xl px-2 focus-within:border-blue-500/50 transition-all"><button onClick={handleVoiceInput} className={`p-2 mr-2 rounded-full ${isListening ? 'bg-red-500/20 text-red-500 animate-pulse' : 'text-gray-400 hover:text-white'}`}><Mic size={20} /></button><input type="text" className="flex-1 bg-transparent border-none text-white px-2 py-4 focus:ring-0 placeholder-gray-500 outline-none" placeholder={isListening ? "正在聆听..." : "输入你的旅行计划..."} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSend()} /><button onClick={handleSend} className={`p-2 rounded-xl transition-all ${input.trim() ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-500'}`}><Send size={18} /></button></div></div>
+                    <div className="p-4 border-t border-white/5 bg-[#0f111a] lg:pb-4 pb-20"><div className="relative flex items-center bg-white/5 border border-white/10 rounded-2xl px-2 focus-within:border-blue-500/50 transition-all"><button onClick={handleVoiceInput} className={`p-2 mr-2 rounded-full ${isListening ? 'bg-red-500/20 text-red-500 animate-pulse' : 'text-gray-400 hover:text-white'}`}><Mic size={20} /></button><input type="text" className="flex-1 bg-transparent border-none text-white px-2 py-4 focus:ring-0 placeholder-gray-500 outline-none" placeholder={isListening ? "正在聆听..." : "输入你的旅行计划..."} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSend()} /><button onClick={() => handleSend(null)} className={`p-2 rounded-xl transition-all ${input.trim() ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-500'}`}><Send size={18} /></button></div></div>
                 </div>
 
-                {/* 2. Middle Dashboard Column (Fluid) */}
+                {/* Middle Dashboard */}
                 <div className={`${mobileView === 'dashboard' ? 'flex' : 'hidden lg:flex'} flex-1 flex-col relative z-10 bg-gradient-to-br from-[#131620] to-[#0b0c12] min-w-0 pb-16 lg:pb-0`}>
                     <div className="h-16 border-b border-white/5 flex items-center justify-between px-4 lg:px-8 bg-white/2 flex-shrink-0">
                         <div className="flex items-center gap-3"><h2 className="text-white font-semibold">{safeRender(destination)} 之旅</h2><span className="text-[10px] uppercase px-2 py-0.5 rounded-full border bg-emerald-500/20 text-emerald-400 border-emerald-500/20">{safeRender(tripStatus)}</span></div>
-                        {/* Top Icons Menu - Only visible on XL screens where sidebar is expanded, or as quick actions */}
                         <div className="hidden xl:flex items-center gap-2">
                             {[{ icon: Banknote, action: handleEstimateBudget, color: "emerald", label: "预算" }, { icon: Backpack, action: handleGeneratePackingList, color: "blue", label: "行李" }, { icon: Music, action: handleGeneratePlaylist, color: "violet", label: "歌单" }, { icon: Siren, action: handleGenerateEmergency, color: "red", label: "求助" }, { icon: ImageIcon, action: handleGeneratePoster, color: "sky", label: "海报" }].map((btn, i) => (
                                 <button key={i} onClick={() => btn.action()} className={`flex items-center gap-2 px-3 py-1.5 bg-gradient-to-r from-${btn.color}-500/20 to-${btn.color}-600/20 hover:from-${btn.color}-500/30 hover:to-${btn.color}-600/30 border border-${btn.color}-500/30 rounded-full text-xs lg:text-sm font-medium text-${btn.color}-400 transition-all hover:scale-105 whitespace-nowrap`}><btn.icon size={14} /><span>{btn.label}</span></button>
                             ))}
                         </div>
-
-                        {/* Mobile/Tablet Compact Menu (Restored & Updated) */}
                         <div className="hidden md:flex xl:hidden items-center gap-2">
-                            {[
-                                { icon: Banknote, action: handleEstimateBudget, color: "emerald", label: "预算" },
-                                { icon: Backpack, action: handleGeneratePackingList, color: "blue", label: "行李" },
-                                { icon: Music, action: handleGeneratePlaylist, color: "violet", label: "歌单" },
-                                { icon: Siren, action: handleGenerateEmergency, color: "red", label: "求助" },
-                                { icon: ImageIcon, action: handleGeneratePoster, color: "sky", label: "海报" }
-                            ].map((btn, i) => (
-                                <button key={i} onClick={() => btn.action()} className={`p-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full text-${btn.color}-400 transition-all hover:scale-105`} title={btn.label}>
-                                    <btn.icon size={16} />
-                                </button>
+                            {[{ icon: Banknote, action: handleEstimateBudget, color: "emerald", label: "预算" }, { icon: Backpack, action: handleGeneratePackingList, color: "blue", label: "行李" }, { icon: Music, action: handleGeneratePlaylist, color: "violet", label: "歌单" }, { icon: Siren, action: handleGenerateEmergency, color: "red", label: "求助" }, { icon: ImageIcon, action: handleGeneratePoster, color: "sky", label: "海报" }].map((btn, i) => (
+                                <button key={i} onClick={() => btn.action()} className={`p-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full text-${btn.color}-400 transition-all hover:scale-105`} title={btn.label}><btn.icon size={16} /></button>
                             ))}
                         </div>
                     </div>
@@ -678,7 +704,6 @@ export default function TravelMindApp() {
                                     <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex items-center gap-2 px-3 lg:px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === tab.id ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}><tab.icon size={16} />{tab.label}</button>
                                 ))}
                             </div>
-
                             {activeTab === 'itinerary' && <ItineraryTimeline days={itineraryData} onGetTips={handleGetDayTips} onActivityClick={handleActivityClick} onGetDiary={handleGenerateDiary} onToggleCheckIn={handleToggleCheckIn} onGenerateVlog={handleGenerateVlog} />}
                             {activeTab === 'pois' && (
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -690,14 +715,14 @@ export default function TravelMindApp() {
                     </div>
                 </div>
 
-                {/* 3. Right Sidebar Column (Fixed Width on XL, Collapsed on LG, Full on Mobile) */}
+                {/* Right Sidebar */}
                 <div className={`${mobileView === 'sidebar' ? 'flex fixed inset-0 z-50 bg-[#0f111a]' : 'hidden xl:flex'} w-full xl:w-[320px] flex-col border-l border-white/5 relative z-10 bg-[#0f111a]/80 backdrop-blur-sm flex-shrink-0`}>
                     <div className="flex-1 overflow-y-auto p-4 custom-scrollbar pb-20 xl:pb-4">
-                        <SmartSidebar destination={destination} weather={weather} itinerary={itineraryData} budget={budgetData} sidebarInfo={sidebarInfo} onRefreshSidebar={updateSidebarInfo} isSidebarLoading={isSidebarLoading} isMobile={mobileView === 'sidebar'} onClose={() => setMobileView('dashboard')} />
+                        <SmartSidebar destination={destination} weather={weather} itinerary={itineraryData} budget={budgetData} sidebarInfo={sidebarInfo} onRefreshSidebar={updateSidebarInfo} isSidebarLoading={isSidebarLoading} isMobile={mobileView === 'sidebar'} onClose={() => setMobileView('dashboard')} onAutoOptimizeBudget={handleAutoOptimizeBudget} />
                     </div>
                 </div>
 
-                {/* LG Screen Sidebar Toggle (Collapsed State - NOW FUNCTIONAL) */}
+                {/* Sidebar Toggle for LG */}
                 <div className="hidden lg:flex xl:hidden w-12 flex-col items-center py-4 border-l border-white/5 bg-[#0f111a]">
                     <div className="space-y-4">
                         <button onClick={() => setShowSidebarDrawer(true)} className="p-2 bg-white/5 rounded-lg text-gray-400 hover:text-white" title="地图"><MapIcon size={20} /></button>
@@ -706,7 +731,6 @@ export default function TravelMindApp() {
                         <button onClick={() => setShowSidebarDrawer(true)} className="p-2 bg-white/5 rounded-lg text-gray-400 hover:text-white" title="预算"><TrendingUp size={20} /></button>
                     </div>
                 </div>
-
             </div>
         </div>
     );
