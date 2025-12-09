@@ -25,6 +25,8 @@ import {
   Navigation,
   Star,
   Image,
+  BrainCircuit,
+  TrendingUp,
 } from 'lucide-react';
 
 import useTravelStore from './store/useTravelStore';
