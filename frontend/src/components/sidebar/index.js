@@ -3,5 +3,3 @@
  */
 
 export { SmartSidebar } from './SmartSidebar';
-export { WeatherTrendWidget } from './WeatherTrendWidget';
-export { BudgetDashboardWidget } from './BudgetDashboardWidget';

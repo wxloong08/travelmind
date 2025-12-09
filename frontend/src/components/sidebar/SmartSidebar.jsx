@@ -282,7 +282,7 @@ const BudgetDashboardWidget = ({ budgetData }) => {
 };
 
 // === 智囊助手主组件 ===
-export default function SmartSidebar({ isMobile, isDrawer, onClose }) {
+export function SmartSidebar({ isMobile, isDrawer, onClose, isCollapsed, onToggle }) {
     const { itinerary, destination, budget } = useTravelStore();
     const [sidebarInfo, setSidebarInfo] = useState({ forecast: [], news: [] });
     const [isLoading, setIsLoading] = useState(false);
