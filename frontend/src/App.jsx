@@ -38,7 +38,7 @@ import { SmartSidebar } from './components/sidebar';
 
 function App() {
   const [input, setInput] = useState('');
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [showSidebarDrawer, setShowSidebarDrawer] = useState(false);
   const messagesEndRef = useRef(null);
 
   // 全局状态
@@ -113,34 +113,38 @@ function App() {
       <ActivityDetailModal />
 
       {/* 移动端底部导航 */}
-      <div className="fixed bottom-0 left-0 right-0 lg:hidden z-40 bg-[#0f111a]/95 backdrop-blur-lg border-t border-white/5 px-4 py-2 flex justify-around items-center">
-        <button
-          onClick={() => setMobileView('chat')}
-          className={`flex flex-col items-center gap-1 px-6 py-2 rounded-xl transition-all ${mobileView === 'chat'
-            ? 'bg-blue-600/20 text-blue-400'
-            : 'text-gray-500'
-            }`}
-        >
+      <div className="fixed bottom-0 left-0 right-0 lg:hidden z-40 bg-[#0f111a]/95 backdrop-blur-lg border-t border-white/5 px-4 py-2 flex justify-around items-center safe-area-bottom">
+        <button onClick={() => setMobileView('chat')} className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all ${mobileView === 'chat' ? 'text-blue-400' : 'text-gray-500'}`}>
           <MessageSquare size={20} />
           <span className="text-[10px]">对话</span>
         </button>
-        <button
-          onClick={() => setMobileView('dashboard')}
-          className={`flex flex-col items-center gap-1 px-6 py-2 rounded-xl transition-all ${mobileView === 'dashboard'
-            ? 'bg-blue-600/20 text-blue-400'
-            : 'text-gray-500'
-            }`}
-        >
+        <button onClick={() => setMobileView('dashboard')} className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all ${mobileView === 'dashboard' ? 'text-blue-400' : 'text-gray-500'}`}>
           <Layout size={20} />
           <span className="text-[10px]">行程</span>
         </button>
+        <button onClick={() => setMobileView('sidebar')} className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all ${mobileView === 'sidebar' ? 'text-blue-400' : 'text-gray-500'}`}>
+          <BrainCircuit size={20} />
+          <span className="text-[10px]">智囊</span>
+        </button>
       </div>
 
+      {/* Sidebar Overlay for LG/Mobile screens (Drawer) */}
+      {(showSidebarDrawer || (mobileView === 'sidebar')) && (
+        <div className={`fixed inset-0 z-[60] bg-black/50 backdrop-blur-sm ${mobileView === 'sidebar' ? 'flex' : 'hidden lg:flex xl:hidden'}`} onClick={() => { setShowSidebarDrawer(false); if (mobileView === 'sidebar') setMobileView('dashboard'); }}>
+          <div className="absolute right-0 top-0 h-full w-80 bg-[#0f111a] border-l border-white/10 shadow-2xl p-4 overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <SmartSidebar
+              destination={destination}
+              itinerary={itinerary}
+              isDrawer={true}
+              isMobile={mobileView === 'sidebar'}
+              onClose={() => { setShowSidebarDrawer(false); if (mobileView === 'sidebar') setMobileView('dashboard'); }}
+            />
+          </div>
+        </div>
+      )}
+
       {/* 左侧聊天区 */}
-      <div
-        className={`${mobileView === 'dashboard' ? 'hidden lg:flex' : 'flex'
-          } w-full lg:w-[420px] flex-col border-r border-white/5 bg-gradient-to-b from-[#12141f] to-[#0f111a] relative z-20`}
-      >
+      <div className={`${mobileView === 'chat' ? 'flex' : 'hidden lg:flex'} w-full lg:w-[280px] xl:w-[320px] flex-col border-r border-white/5 bg-gradient-to-b from-[#12141f] to-[#0f111a] relative z-20 flex-shrink-0 transition-all duration-300`}>
         {/* 聊天头部 */}
         <div className="h-16 border-b border-white/5 flex items-center px-4 lg:px-6 gap-3 bg-white/2 backdrop-blur-md">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-purple-600 flex items-center justify-center shadow-lg shadow-blue-600/30">
@@ -189,11 +193,8 @@ function App() {
         </div>
       </div>
 
-      {/* 右侧仪表盘 */}
-      <div
-        className={`${mobileView === 'chat' ? 'hidden lg:flex' : 'flex'
-          } flex-1 flex-col relative z-10 bg-gradient-to-br from-[#131620] to-[#0b0c12] lg:pb-0 pb-16`}
-      >
+      {/* 中间仪表盘 (自适应宽度) */}
+      <div className={`${mobileView === 'dashboard' ? 'flex' : 'hidden lg:flex'} flex-1 flex-col relative z-10 bg-gradient-to-br from-[#131620] to-[#0b0c12] min-w-0 pb-20 lg:pb-0`}>
         {/* 仪表盘头部 */}
         <div className="h-16 border-b border-white/5 flex items-center justify-between px-4 lg:px-8 bg-white/2">
           <div className="flex items-center gap-3 lg:gap-4 overflow-hidden">
@@ -429,16 +430,35 @@ function App() {
         </div>
       </div>
 
-      {/* 智囊侧边栏 - 仅桌面端显示 */}
-      <div className="hidden xl:block">
-        <SmartSidebar
-          isCollapsed={sidebarCollapsed}
-          onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
-          itinerary={itinerary}
-          destination={destination}
-        />
+
+
+      {/* 右侧侧边栏 - XL显示完整，LG显示折叠条 */}
+
+      {/* 1. XL Screen: Full Sidebar */}
+      <div className="hidden xl:flex w-[320px] flex-col border-l border-white/5 relative z-10 bg-[#0f111a]/80 backdrop-blur-sm flex-shrink-0">
+        <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
+          <SmartSidebar itinerary={itinerary} destination={destination} />
+        </div>
       </div>
-    </div>
+
+      {/* 2. LG Screen: Collapsed Toolbar */}
+      <div className="hidden lg:flex xl:hidden w-12 flex-col items-center py-4 border-l border-white/5 bg-[#0f111a]">
+        <div className="space-y-4">
+          <button onClick={() => setShowSidebarDrawer(true)} className="p-2 bg-white/5 rounded-lg text-gray-400 hover:text-white transition-colors" title="智囊助手">
+            <BrainCircuit size={20} />
+          </button>
+          <button onClick={() => setShowSidebarDrawer(true)} className="p-2 bg-white/5 rounded-lg text-gray-400 hover:text-white transition-colors" title="地图">
+            <MapIcon size={20} />
+          </button>
+          <button onClick={() => setShowSidebarDrawer(true)} className="p-2 bg-white/5 rounded-lg text-gray-400 hover:text-white transition-colors" title="天气">
+            <CloudSun size={20} />
+          </button>
+          <button onClick={() => setShowSidebarDrawer(true)} className="p-2 bg-white/5 rounded-lg text-gray-400 hover:text-white transition-colors" title="预算">
+            <TrendingUp size={20} />
+          </button>
+        </div>
+      </div>
+    </div >
   );
 }
 
