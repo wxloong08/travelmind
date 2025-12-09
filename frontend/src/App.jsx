@@ -133,7 +133,7 @@ function App() {
       {/* Sidebar Overlay for LG/Mobile screens (Drawer) */}
       {(showSidebarDrawer || (mobileView === 'sidebar')) && (
         <div className={`fixed inset-0 z-[60] bg-black/50 backdrop-blur-sm ${mobileView === 'sidebar' ? 'flex' : 'hidden lg:flex xl:hidden'}`} onClick={() => { setShowSidebarDrawer(false); if (mobileView === 'sidebar') setMobileView('dashboard'); }}>
-          <div className="absolute right-0 top-0 h-full w-80 bg-[#0f111a] border-l border-white/10 shadow-2xl p-4 overflow-y-auto" onClick={e => e.stopPropagation()}>
+          <div className={`absolute right-0 top-0 h-full bg-[#0f111a] border-l border-white/10 shadow-2xl p-4 overflow-y-auto transition-all duration-300 ${mobileView === 'sidebar' ? 'w-full' : 'w-80'}`} onClick={e => e.stopPropagation()}>
             <SmartSidebar
               destination={destination}
               itinerary={itinerary}
