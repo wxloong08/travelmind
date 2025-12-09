@@ -523,25 +523,150 @@ async def planning_node(state: AgentState) -> dict[str, Any]:
     days = travel_pref.get("days", 3)
     guide_context = travel_pref.get("guide_context", "")
 
-    # ========== 获取真实酒店数据 ==========
+    # ========== 预算等级判断 ==========
+    def get_budget_level(user_input: str, travel_style: str) -> tuple[str, int, int]:
+        """
+        判断住宿预算等级
+        
+        Returns: (等级名称, 最低价, 最高价)
+        """
+        user_lower = (user_input or "").lower()
+        style_lower = (travel_style or "").lower()
+        
+        # 经济型关键词
+        if any(kw in user_lower or kw in style_lower for kw in ["经济", "省钱", "穷游", "背包", "青旅"]):
+            return ("economy", 100, 200)
+        # 豪华型关键词
+        if any(kw in user_lower or kw in style_lower for kw in ["豪华", "高端", "五星", "奢华", "度假"]):
+            return ("luxury", 800, 2000)
+        # 舒适型关键词
+        if any(kw in user_lower or kw in style_lower for kw in ["舒适", "商务", "品质"]):
+            return ("comfortable", 400, 800)
+        # 默认中等预算
+        return ("moderate", 200, 400)
+
+    user_message = state.get("messages", [])[-1].content if state.get("messages") else ""
+    budget_level, min_price, max_price = get_budget_level(user_message, travel_style)
+    logger.info("Budget level determined", level=budget_level, min=min_price, max=max_price)
+
+    # ========== 从攻略中提取住宿推荐 ==========
+    guide_hotels = []
+    if guide_context:
+        import re
+        
+        # 住宿提取正则模式
+        hotel_patterns = [
+            r"住在[了的]?(.{2,15}(?:酒店|民宿|客栈|旅馆|公寓|青旅|驿站))",
+            r"推荐(.{2,15}(?:酒店|民宿|客栈|旅馆|公寓|青旅))",
+            r"入住[了的]?(.{2,15}(?:酒店|民宿|客栈|旅馆))",
+            r"住宿[：:]\s*(.{2,20})",
+            r"酒店推荐[：:]\s*(.{2,20})",
+            r"(?:选择|预订)[了的]?(.{2,15}(?:酒店|民宿|客栈))",
+        ]
+        
+        hotel_mentions = []
+        for pattern in hotel_patterns:
+            matches = re.findall(pattern, guide_context)
+            hotel_mentions.extend(matches)
+        
+        # 去重
+        unique_hotels = list(set(h.strip() for h in hotel_mentions if h.strip()))
+        logger.info("Hotels extracted from guides", count=len(unique_hotels), names=unique_hotels[:3])
+        
+        # 通过 POI 搜索验证并获取详细信息
+        if unique_hotels:
+            from src.tools import search_poi
+            
+            for hotel_name in unique_hotels[:2]:  # 最多验证2个，减少 API 调用
+                try:
+                    import asyncio
+                    await asyncio.sleep(0.5)  # API 限流
+                    
+                    result = await search_poi.ainvoke({
+                        "keywords": hotel_name,
+                        "city": destination,
+                        "poi_type": "hotel",
+                        "page_size": 1,
+                    })
+                    
+                    if result and result.get("results"):
+                        h = result["results"][0]
+                        poi_cost = h.get("cost")
+                        estimated_price = int(poi_cost) if poi_cost else (min_price + max_price) // 2
+                        
+                        guide_hotels.append({
+                            "name": h.get("name", hotel_name),
+                            "price": f"¥{estimated_price}起",
+                            "price_num": estimated_price,
+                            "rating": h.get("rating") or 4.5,
+                            "tags": ["攻略推荐"] + (h.get("type", "酒店").split(";")[:1] or []),
+                            "address": h.get("address", ""),
+                            "location": h.get("location"),
+                            "source": "guide",  # 标记来源
+                        })
+                except Exception as e:
+                    logger.warning(f"Failed to verify guide hotel: {hotel_name}, error: {e}")
+        
+        logger.info("Guide hotels verified", count=len(guide_hotels))
+
+    # ========== 获取真实酒店数据（按预算筛选）==========
     real_hotels = []
+    
+    # 优先使用攻略推荐的酒店
+    if guide_hotels:
+        real_hotels.extend(guide_hotels)
+    
     try:
         from src.tools import search_poi
+        
+        # 根据预算等级选择搜索关键词
+        hotel_keywords = {
+            "economy": "如家 汉庭 7天 快捷酒店",
+            "moderate": "全季 亚朵 维也纳 酒店",
+            "comfortable": "希尔顿 万豪 洲际 酒店",
+            "luxury": "四季 半岛 安缦 丽思卡尔顿",
+        }
+        
+        import asyncio
+        await asyncio.sleep(0.5)  # API 限流
+        
         hotels_result = await search_poi.ainvoke({
-            "keywords": "酒店",
+            "keywords": hotel_keywords.get(budget_level, "酒店"),
             "city": destination,
             "poi_type": "hotel",
-            "page_size": 5,
+            "page_size": 6,  # 减少请求数量
         })
-        for h in hotels_result.get("results", [])[:5]:
+        
+        for h in hotels_result.get("results", [])[:6]:
+            # 估算价格（高德 POI 可能没有价格，根据类型估算）
+            poi_cost = h.get("cost")
+            if poi_cost:
+                estimated_price = int(poi_cost)
+            else:
+                # 根据酒店名称估算价格
+                hotel_name = h.get("name", "")
+                if any(kw in hotel_name for kw in ["如家", "汉庭", "7天", "锦江之星"]):
+                    estimated_price = 180
+                elif any(kw in hotel_name for kw in ["全季", "亚朵", "维也纳"]):
+                    estimated_price = 320
+                elif any(kw in hotel_name for kw in ["希尔顿", "万豪", "洲际", "喜来登"]):
+                    estimated_price = 600
+                else:
+                    estimated_price = (min_price + max_price) // 2
+            
             real_hotels.append({
                 "name": h.get("name", "酒店"),
-                "price": f"¥{int(h.get('cost') or 300)}起",
+                "price": f"¥{estimated_price}起",
+                "price_num": estimated_price,
                 "rating": h.get("rating") or 4.5,
                 "tags": h.get("type", "酒店").split(";")[:2] or ["热门"],
                 "address": h.get("address", ""),
+                "location": h.get("location"),  # 用于交通计算
             })
-        logger.info("Real hotels fetched", count=len(real_hotels))
+        
+        # 按价格排序，筛选符合预算的酒店
+        real_hotels.sort(key=lambda x: x.get("price_num", 999))
+        logger.info("Real hotels fetched", count=len(real_hotels), budget=budget_level)
     except Exception as e:
         logger.warning("Hotel fetch failed", error=str(e))
 
@@ -609,13 +734,55 @@ async def planning_node(state: AgentState) -> dict[str, Any]:
                     "time": "09:00",
                     "title": "活动名称",
                     "type": "attraction|food|hotel|transport",
-                    "desc": "简短描述（30-50字），包含实用信息如门票、交通方式"
+                    "desc": "简短描述（30-50字），包含实用信息如门票、交通方式",
+                    "transport_from_prev": {{
+                        "from": "上一个地点名称（第一个活动填'酒店/车站'）",
+                        "method": "地铁/公交/步行/打车",
+                        "duration": "约30分钟",
+                        "detail": "具体路线，如'地铁1号线→换乘2号线'"
+                    }}
                 }}
-            ]
+            ],
+            "accommodation": {{
+                "name": "推荐入住的酒店名称",
+                "reason": "为什么推荐这家（重点说明：方便明天前往XX景点）",
+                "check_in_note": "入住提示，如'建议下午游玩结束后入住'",
+                "stay_same_tomorrow": true,
+                "next_day_first_spot": "第二天第一个景点名称（用于验证推荐理由）"
+            }}
         }}
     ],
+    "accommodation_strategy": {{
+        "type": "same_hotel|change_hotel|smart",
+        "reason": "住宿策略说明"
+    }},
     "recommended_hotels": []
 }}
+
+## 🏨 住宿安排规则（非常重要！）
+1. **住宿是为了方便第二天的行程**，不是当天的！
+2. **推荐理由必须基于第二天的行程**：例如"靠近明日行程起点XX"或"方便前往长城/环球影城"
+3. **最后一天不需要住宿**（返程日）
+4. **stay_same_tomorrow**：如果第二天景点在同一区域（距离 < 15km），设为 true
+5. **主题公园**（环球影城、迪士尼等）：建议前一晚换到就近酒店，方便早起入园
+6. **预算等级**：用户预算为「{budget_level}」级别（¥{min_price}-{max_price}/晚）
+
+⚠️ 特别注意：
+- Day1 的住宿推荐理由应该说"方便 Day2 前往XX"
+- Day2 的住宿推荐理由应该说"方便 Day3 前往XX"
+- 以此类推...
+
+## 🚗 交通安排规则（非常重要！）
+1. **每个活动必须包含 transport_from_prev**：说明从上一个地点如何到达
+2. **第一个活动的 from**：填写"酒店"或"火车站/机场"（取决于当天是否换酒店）
+3. **交通时间要合理**：
+   - 地铁/公交一般 15-40 分钟
+   - 打车一般 10-30 分钟
+   - 步行一般 5-15 分钟
+   - 跨城区可能需要 1 小时以上
+4. **在北京**：故宫→长城需要约 1.5-2 小时（地铁+大巴），不能低估
+5. **在上海**：外滩→迪士尼需要约 1 小时（地铁2号线→11号线）
+6. **交通信息要具体**：不要只说"地铁"，要说"地铁X号线XX站上车"
 
 只返回纯 JSON！"""
 
@@ -653,14 +820,212 @@ async def planning_node(state: AgentState) -> dict[str, Any]:
             "guide_count": len(state.get("search_results", [])),
             "has_full_guides": bool(guide_context),
         },
+        "budget_info": {
+            "level": budget_level,
+            "min_price": min_price,
+            "max_price": max_price,
+        },
     }
 
     if structured_plan:
         travel_plan["structured"] = True
         travel_plan["chat_response"] = structured_plan.get("chat_response", "")
-        travel_plan["itinerary"] = structured_plan.get("itinerary", [])
-        travel_plan["recommended_hotels"] = real_hotels if real_hotels else structured_plan.get("recommended_hotels", [])
+        itinerary_from_plan = structured_plan.get("itinerary", [])
+        travel_plan["itinerary"] = itinerary_from_plan
+        
+        logger.info("Structured plan parsed",
+                   has_itinerary=bool(itinerary_from_plan),
+                   itinerary_len=len(itinerary_from_plan) if itinerary_from_plan else 0,
+                   first_day_activities=len(itinerary_from_plan[0].get("activities", [])) if itinerary_from_plan else 0)
+        travel_plan["accommodation_strategy"] = structured_plan.get("accommodation_strategy", {
+            "type": "smart",
+            "reason": "智能推荐，根据行程自动判断"
+        })
         travel_plan["content"] = structured_plan.get("chat_response", "")
+        
+        # ========== 后处理：填充真实酒店数据到每日住宿 ==========
+        if real_hotels:
+            itinerary = travel_plan.get("itinerary", [])
+            total_days = len(itinerary)
+            
+            for i, day_plan in enumerate(itinerary):
+                # 最后一天不需要住宿
+                if i >= total_days - 1:
+                    day_plan["accommodation"] = None
+                    continue
+                
+                # 获取 LLM 建议的住宿信息
+                llm_accommodation = day_plan.get("accommodation", {})
+                
+                # 选择合适的酒店（轮换使用，或根据 stay_same_tomorrow 判断）
+                if i == 0 or not llm_accommodation.get("stay_same_tomorrow", True):
+                    # 第一天或需要换酒店：选择新酒店
+                    hotel_index = min(i, len(real_hotels) - 1)
+                    selected_hotel = real_hotels[hotel_index] if real_hotels else None
+                else:
+                    # 继续住同一家：使用前一天的酒店
+                    prev_accommodation = itinerary[i - 1].get("accommodation", {})
+                    selected_hotel = prev_accommodation.get("hotel_data")
+                    if not selected_hotel and real_hotels:
+                        selected_hotel = real_hotels[0]
+                
+                if selected_hotel:
+                    day_plan["accommodation"] = {
+                        "name": selected_hotel.get("name"),
+                        "price": selected_hotel.get("price"),
+                        "address": selected_hotel.get("address", ""),
+                        "rating": selected_hotel.get("rating"),
+                        "tags": selected_hotel.get("tags", []),
+                        "reason": llm_accommodation.get("reason", "位置便利，性价比高"),
+                        "check_in_note": llm_accommodation.get("check_in_note", "建议下午3点后入住"),
+                        "stay_same_tomorrow": llm_accommodation.get("stay_same_tomorrow", True),
+                        "hotel_data": selected_hotel,  # 保存完整数据用于后续日复用
+                    }
+                else:
+                    # 无真实酒店数据，使用 LLM 生成的推荐
+                    day_plan["accommodation"] = llm_accommodation
+            
+            logger.info("Accommodation data filled", 
+                       days_with_hotel=sum(1 for d in itinerary if d.get("accommodation")))
+        
+        # ================ 真实交通计算后处理（可选，失败不影响返回）================
+        try:
+            # 注意：高德 API QPS 限制为 3，需要限流
+            import asyncio
+            from src.tools.amap import get_amap_client
+            
+            logger.info("Starting real transportation calculation (rate-limited)...")
+            
+            amap_client = get_amap_client()
+            
+            # 限制只对前 2 天进行详细交通计算，避免 API 超限
+            max_days_for_transport = min(len(itinerary), 2)
+            
+            for day_idx, day_plan in enumerate(itinerary):
+                # 只处理前几天，避免 API 超限
+                if day_idx >= max_days_for_transport:
+                    logger.info(f"Skipping day {day_idx + 1} transport calculation (rate limit)")
+                    break
+                    
+                activities = day_plan.get("activities", [])
+                if not activities:
+                    continue
+                
+                # 每天只处理前 3 个活动的交通
+                max_activities = min(len(activities), 3)
+                    
+                # 第一个活动的交通：从酒店出发
+                prev_hotel = None
+                if day_idx > 0:
+                    prev_accommodation = itinerary[day_idx - 1].get("accommodation", {})
+                    if prev_accommodation and prev_accommodation.get("location"):
+                        # 直接使用已保存的坐标，避免额外 API 调用
+                        prev_hotel = {
+                            "name": prev_accommodation.get("name", "酒店"),
+                            "location": (
+                                prev_accommodation["location"].get("lng"),
+                                prev_accommodation["location"].get("lat")
+                            )
+                        }
+                
+                prev_location = None
+                prev_name = prev_hotel.get("name", "酒店") if prev_hotel else "酒店"
+                
+                if prev_hotel and prev_hotel.get("location") and prev_hotel["location"][0]:
+                    prev_location = prev_hotel["location"]
+                
+                for act_idx, activity in enumerate(activities):
+                    # 只处理前几个活动
+                    if act_idx >= max_activities:
+                        break
+                        
+                    activity_title = activity.get("title", "")
+                    
+                    # 搜索活动 POI 获取坐标
+                    try:
+                        # API 限流：每次调用前等待
+                        await asyncio.sleep(0.5)
+                        
+                        pois = await amap_client.search_poi(
+                            keywords=activity_title,
+                            city=destination,
+                            page_size=1
+                        )
+                        
+                        if pois:
+                            poi = pois[0]
+                            current_location = poi.location
+                            
+                            # 保存位置信息
+                            activity["location"] = {
+                                "lng": current_location[0],
+                                "lat": current_location[1]
+                            }
+                            activity["poi_name"] = poi.name
+                            activity["poi_address"] = poi.address
+                            
+                            # 计算交通（如果有前一个位置）
+                            if prev_location:
+                                try:
+                                    # API 限流
+                                    await asyncio.sleep(0.5)
+                                    
+                                    route_result = await amap_client.route_planning(
+                                        origin=prev_location,
+                                        destination=current_location,
+                                        mode="transit"  # 公共交通
+                                    )
+                                    
+                                    if route_result:
+                                        distance_km = round(route_result.distance / 1000, 1)
+                                        duration_min = round(route_result.duration / 60)
+                                        
+                                        # 判断交通方式
+                                        if distance_km < 1:
+                                            method = "步行"
+                                        elif distance_km < 3:
+                                            method = "步行/公交"
+                                        else:
+                                            method = "地铁/公交"
+                                        
+                                        activity["transport_from_prev"] = {
+                                            "from": prev_name,
+                                            "method": method,
+                                            "duration": f"约{duration_min}分钟",
+                                            "distance": f"{distance_km}km",
+                                            "detail": route_result.steps[0].get("instruction", "") if route_result.steps else "",
+                                            "real_data": True  # 标记为真实数据
+                                        }
+                                    else:
+                                        # 路线规划失败，使用 LLM 数据或默认值
+                                        if "transport_from_prev" not in activity:
+                                            activity["transport_from_prev"] = {
+                                                "from": prev_name,
+                                                "method": "公交/地铁",
+                                                "duration": "约30分钟",
+                                                "detail": "",
+                                                "real_data": False
+                                            }
+                                except Exception as e:
+                                    logger.warning(f"Route planning failed: {e}")
+                            
+                            # 更新前一个位置
+                            prev_location = current_location
+                            prev_name = activity_title
+                        else:
+                            # POI 搜索无结果，跳过
+                            prev_name = activity_title
+                            
+                    except Exception as e:
+                        logger.warning(f"POI search failed for {activity_title}: {e}")
+                        prev_name = activity_title
+                
+            logger.info("Real transportation calculation completed")
+        except Exception as transport_error:
+            # 交通计算失败不影响返回，记录警告并继续
+            logger.warning(f"Real transportation calculation failed (non-critical): {transport_error}")
+        
+        travel_plan["recommended_hotels"] = real_hotels if real_hotels else structured_plan.get("recommended_hotels", [])
     else:
         travel_plan["structured"] = False
         travel_plan["content"] = response.content

@@ -854,6 +854,129 @@ async def api_generate_poster_data(request: PosterRequest) -> PosterResponse:
 
 
 # ============================================================
+# 图片 API
+# ============================================================
+
+
+class ImageRequest(BaseModel):
+    """图片请求"""
+    city: str
+    image_type: str = "landmark"  # landmark, poster_bg, thumbnail
+
+
+class ImageResponse(BaseModel):
+    """图片响应"""
+    url: str
+    source: str
+    city: str
+
+
+@router.post(
+    "/images/city",
+    response_model=ImageResponse,
+    tags=["Images"],
+    summary="获取城市图片",
+)
+async def api_get_city_image(request: ImageRequest) -> ImageResponse:
+    """获取城市图片 URL"""
+    from src.services.images import image_service
+    
+    result = image_service.get_city_image(request.city, request.image_type)
+    return ImageResponse(**result)
+
+
+@router.get(
+    "/images/city/{city}",
+    response_model=ImageResponse,
+    tags=["Images"],
+    summary="获取城市图片 (GET)",
+)
+async def api_get_city_image_get(city: str, image_type: str = "landmark") -> ImageResponse:
+    """获取城市图片 URL (GET 方式)"""
+    from src.services.images import image_service
+    
+    result = image_service.get_city_image(city, image_type)
+    return ImageResponse(**result)
+
+
+# ============================================================
+# 侧边栏 API
+# ============================================================
+
+
+class WeatherForecastResponse(BaseModel):
+    """天气预报响应"""
+    city: str
+    forecasts: list[dict[str, Any]]
+
+
+class LocalNewsResponse(BaseModel):
+    """当地资讯响应"""
+    city: str
+    news: list[dict[str, Any]]
+
+
+class BudgetBreakdownRequest(BaseModel):
+    """预算计算请求"""
+    destination: str
+    itinerary: list[dict[str, Any]]
+
+
+class BudgetBreakdownResponse(BaseModel):
+    """预算计算响应"""
+    breakdown: dict[str, int]
+    total_estimated: int
+    per_day: int
+    nights: int
+    days: int
+
+
+@router.get(
+    "/sidebar/weather/{city}",
+    response_model=WeatherForecastResponse,
+    tags=["Sidebar"],
+    summary="获取天气预报",
+)
+async def api_get_weather_forecast(city: str) -> WeatherForecastResponse:
+    """获取城市 5 天天气预报"""
+    from src.services.sidebar import get_weather_forecast
+    
+    result = await get_weather_forecast(city)
+    return WeatherForecastResponse(
+        city=result.get("city", city),
+        forecasts=result.get("forecasts", [])
+    )
+
+
+@router.get(
+    "/sidebar/news/{city}",
+    response_model=LocalNewsResponse,
+    tags=["Sidebar"],
+    summary="获取当地资讯",
+)
+async def api_get_local_news(city: str) -> LocalNewsResponse:
+    """获取目的地当地资讯"""
+    from src.services.sidebar import get_local_news
+    
+    news = await get_local_news(city)
+    return LocalNewsResponse(city=city, news=news)
+
+
+@router.post(
+    "/sidebar/budget",
+    response_model=BudgetBreakdownResponse,
+    tags=["Sidebar"],
+    summary="计算预算分解",
+)
+async def api_calculate_budget(request: BudgetBreakdownRequest) -> BudgetBreakdownResponse:
+    """从行程数据计算预算分解"""
+    from src.services.sidebar import calculate_budget_breakdown
+    
+    result = calculate_budget_breakdown(request.itinerary, request.destination)
+    return BudgetBreakdownResponse(**result)
+
+
+# ============================================================
 # 调试 API (仅开发环境)
 # ============================================================
 

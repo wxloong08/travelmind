@@ -27,6 +27,26 @@ const typeIcons = {
   default: MapPin,
 };
 
+// 安全渲染函数：防止对象直接渲染导致 React 崩溃
+const safeRender = (value) => {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number') return String(value);
+  if (typeof value === 'object') {
+    // 尝试提取常见字段
+    if (value.name) return value.name;
+    if (value.title) return value.title;
+    if (value.text) return value.text;
+    // 最后 fallback 为 JSON
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return '[Object]';
+    }
+  }
+  return String(value);
+};
+
 export function ItineraryTimeline() {
   const { itinerary, openDetailModal, toggleCheckIn } = useTravelStore();
   const { getDayTips, generateDiary, generateVlogScript } = useAiFeature();
@@ -61,12 +81,12 @@ export function ItineraryTimeline() {
           <div className="mb-6 flex justify-between items-start">
             <div>
               <h3 className="text-lg lg:text-xl font-bold text-white mb-1 flex items-center gap-2">
-                <span className="text-blue-400">Day {day.day}</span>
-                {day.title}
+                <span className="text-blue-400">Day {safeRender(day.day)}</span>
+                {safeRender(day.title)}
               </h3>
               <div className="text-gray-400 text-xs lg:text-sm flex items-center gap-2">
                 <Calendar size={14} />
-                第 {day.day} 天
+                第 {safeRender(day.day)} 天
               </div>
             </div>
 
@@ -103,57 +123,148 @@ export function ItineraryTimeline() {
             {day.activities?.map((act, actIdx) => {
               const Icon = typeIcons[act.type] || typeIcons.default;
               const isChecked = act.checked;
+              const transport = act.transport_from_prev;
 
               return (
-                <div
-                  key={actIdx}
-                  className={`bg-white/5 border border-white/10 rounded-xl p-3 lg:p-4 hover:bg-white/10 hover:border-blue-500/30 hover:shadow-lg hover:shadow-blue-900/10 hover:-translate-y-0.5 transition-all cursor-pointer group relative active:scale-[0.99] active:bg-white/5 ${isChecked ? 'opacity-60 grayscale' : ''}`}
-                >
-                  {/* 打卡按钮和箭头 */}
-                  <div className="absolute top-4 right-4 flex gap-2">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleCheckIn(dayIdx, actIdx);
-                      }}
-                      className={`p-1.5 rounded-full transition-colors ${isChecked ? 'text-green-400 bg-green-900/30' : 'text-gray-600 hover:text-green-400 hover:bg-green-900/20'}`}
-                      title="打卡"
-                    >
-                      {isChecked ? <CheckSquare size={18} /> : <CheckCircle2 size={18} />}
-                    </button>
-                    <div className="text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <ChevronRight size={18} />
-                    </div>
-                  </div>
-
-                  <div
-                    className="flex items-start gap-3 lg:gap-4"
-                    onClick={() => handleActivityClick(dayIdx, actIdx, act)}
-                  >
-                    {/* 图标 */}
-                    <div className="mt-1 p-2 rounded-lg bg-gray-800 text-blue-400 group-hover:scale-110 transition-transform shrink-0">
-                      <Icon size={16} />
-                    </div>
-
-                    {/* 内容 */}
-                    <div className="flex-1 min-w-0 pr-10">
-                      <div className="flex justify-between items-start flex-wrap gap-2">
-                        <h4 className={`font-semibold text-gray-200 truncate pr-2 group-hover:text-blue-300 transition-colors ${isChecked ? 'line-through text-gray-500' : ''}`}>
-                          {act.title}
-                        </h4>
-                        <span className="text-xs font-mono text-gray-500 bg-gray-800 px-2 py-0.5 rounded whitespace-nowrap">
-                          {act.time}
+                <div key={actIdx}>
+                  {/* 交通信息卡片 */}
+                  {transport && (
+                    <div className="flex items-center gap-2 py-2 px-3 mb-2 text-xs text-gray-400 bg-gray-800/50 rounded-lg border border-gray-700/50">
+                      <span className="text-cyan-400">🚗</span>
+                      <span className="text-gray-500">从</span>
+                      <span className="text-gray-300">{safeRender(transport.from)}</span>
+                      <span className="text-gray-600">→</span>
+                      <span className="text-cyan-300 font-medium">{safeRender(transport.method)}</span>
+                      <span className="text-yellow-400 font-mono">{safeRender(transport.duration)}</span>
+                      {transport.detail && (
+                        <span className="text-gray-500 truncate max-w-[200px]" title={safeRender(transport.detail)}>
+                          ({safeRender(transport.detail)})
                         </span>
+                      )}
+                    </div>
+                  )}
+
+                  {/* 活动卡片 */}
+                  <div
+                    className={`bg-white/5 border border-white/10 rounded-xl p-3 lg:p-4 hover:bg-white/10 hover:border-blue-500/30 hover:shadow-lg hover:shadow-blue-900/10 hover:-translate-y-0.5 transition-all cursor-pointer group relative active:scale-[0.99] active:bg-white/5 ${isChecked ? 'opacity-60 grayscale' : ''}`}
+                  >
+                    {/* 打卡按钮和箭头 */}
+                    <div className="absolute top-4 right-4 flex gap-2">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleCheckIn(dayIdx, actIdx);
+                        }}
+                        className={`p-1.5 rounded-full transition-colors ${isChecked ? 'text-green-400 bg-green-900/30' : 'text-gray-600 hover:text-green-400 hover:bg-green-900/20'}`}
+                        title="打卡"
+                      >
+                        {isChecked ? <CheckSquare size={18} /> : <CheckCircle2 size={18} />}
+                      </button>
+                      <div className="text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <ChevronRight size={18} />
                       </div>
-                      <p className="text-xs lg:text-sm text-gray-400 mt-1 line-clamp-2">
-                        {act.desc}
-                      </p>
+                    </div>
+
+                    <div
+                      className="flex items-start gap-3 lg:gap-4"
+                      onClick={() => handleActivityClick(dayIdx, actIdx, act)}
+                    >
+                      {/* 图标 */}
+                      <div className="mt-1 p-2 rounded-lg bg-gray-800 text-blue-400 group-hover:scale-110 transition-transform shrink-0">
+                        <Icon size={16} />
+                      </div>
+
+                      {/* 内容 */}
+                      <div className="flex-1 min-w-0 pr-10">
+                        <div className="flex justify-between items-start flex-wrap gap-2">
+                          <h4 className={`font-semibold text-gray-200 truncate pr-2 group-hover:text-blue-300 transition-colors ${isChecked ? 'line-through text-gray-500' : ''}`}>
+                            {safeRender(act.title)}
+                          </h4>
+                          <span className="text-xs font-mono text-gray-500 bg-gray-800 px-2 py-0.5 rounded whitespace-nowrap">
+                            {safeRender(act.time)}
+                          </span>
+                        </div>
+                        <p className="text-xs lg:text-sm text-gray-400 mt-1 line-clamp-2">
+                          {safeRender(act.desc)}
+                        </p>
+                      </div>
                     </div>
                   </div>
                 </div>
               );
             })}
           </div>
+
+          {/* 每日住宿推荐卡片 */}
+          {day.accommodation && (
+            <div className="mt-4 bg-gradient-to-r from-amber-900/20 to-orange-900/20 border border-amber-500/20 rounded-xl p-4 group hover:border-amber-500/40 transition-all">
+              <div className="flex items-start gap-4">
+                {/* 酒店图标 */}
+                <div className="p-3 rounded-xl bg-amber-500/20 text-amber-400 shrink-0">
+                  <Hotel size={20} />
+                </div>
+
+                {/* 酒店信息 */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="font-semibold text-amber-200 flex items-center gap-2">
+                      🏨 今晚入住
+                      <span className="text-xs font-normal text-amber-400/70">
+                        (方便明日行程)
+                      </span>
+                    </h4>
+                    <span className="text-lg font-bold text-amber-300">
+                      {safeRender(day.accommodation.price)}
+                    </span>
+                  </div>
+
+                  <p className="text-white font-medium mb-1">
+                    {safeRender(day.accommodation.name)}
+                  </p>
+
+                  {day.accommodation.address && (
+                    <p className="text-xs text-gray-400 flex items-center gap-1 mb-2">
+                      <MapPin size={12} />
+                      {safeRender(day.accommodation.address)}
+                    </p>
+                  )}
+
+                  {/* 标签和评分 */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {day.accommodation.rating && (
+                      <span className="text-xs bg-amber-500/30 text-amber-200 px-2 py-0.5 rounded-full">
+                        ⭐ {safeRender(day.accommodation.rating)}
+                      </span>
+                    )}
+                    {day.accommodation.tags?.slice(0, 2).map((tag, i) => (
+                      <span key={i} className="text-xs bg-white/10 text-gray-300 px-2 py-0.5 rounded-full">
+                        {safeRender(tag)}
+                      </span>
+                    ))}
+                    {day.accommodation.stay_same_tomorrow && dayIdx < itinerary.length - 2 && (
+                      <span className="text-xs bg-green-500/20 text-green-300 px-2 py-0.5 rounded-full">
+                        ✓ 明天继续住这里
+                      </span>
+                    )}
+                  </div>
+
+                  {/* 入住提示 */}
+                  {day.accommodation.check_in_note && (
+                    <p className="text-xs text-gray-400 mt-2 italic">
+                      💡 {safeRender(day.accommodation.check_in_note)}
+                    </p>
+                  )}
+
+                  {/* 推荐理由 */}
+                  {day.accommodation.reason && (
+                    <p className="text-xs text-amber-200/70 mt-2">
+                      📍 {safeRender(day.accommodation.reason)}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       ))}
     </div>

@@ -301,16 +301,23 @@ async def stream_travel_agent(
         
         # 行程信息 - 优先使用结构化数据
         travel_plan = final_state.get("travel_plan")
+        logger.info("Building end event",
+                   has_travel_plan=bool(travel_plan),
+                   structured=travel_plan.get("structured") if travel_plan else None,
+                   itinerary_len=len(travel_plan.get("itinerary", [])) if travel_plan else 0)
+        
         if travel_plan:
             # 优先使用结构化的 itinerary
             if travel_plan.get("structured") and travel_plan.get("itinerary"):
                 end_event["itinerary"] = travel_plan["itinerary"]
+                logger.info("Using structured itinerary", count=len(travel_plan["itinerary"]))
             else:
                 # 回退到文本解析
                 plan_content = travel_plan.get("content", "")
                 itinerary = _parse_itinerary_from_plan(plan_content, travel_pref.get("destination", ""))
                 if itinerary:
                     end_event["itinerary"] = itinerary
+                    logger.info("Using parsed itinerary", count=len(itinerary))
             
             # 优先使用结构化的酒店推荐
             if travel_plan.get("recommended_hotels"):

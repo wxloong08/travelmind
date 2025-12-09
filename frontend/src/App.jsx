@@ -34,9 +34,11 @@ import { ItineraryTimeline } from './components/dashboard/ItineraryTimeline';
 import { GaodeMap } from './components/map/GaodeMap';
 import { AiModal } from './components/modals/AiModal';
 import { ActivityDetailModal } from './components/modals/ActivityDetailModal';
+import { SmartSidebar } from './components/sidebar';
 
 function App() {
   const [input, setInput] = useState('');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const messagesEndRef = useRef(null);
 
   // 全局状态
@@ -425,6 +427,16 @@ function App() {
           {/* 地图 Tab */}
           {activeTab === 'map' && <GaodeMap />}
         </div>
+      </div>
+
+      {/* 智囊侧边栏 - 仅桌面端显示 */}
+      <div className="hidden xl:block">
+        <SmartSidebar
+          isCollapsed={sidebarCollapsed}
+          onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
+          itinerary={itinerary}
+          destination={destination}
+        />
       </div>
     </div>
   );

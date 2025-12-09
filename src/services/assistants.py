@@ -632,31 +632,38 @@ class AssistantService:
     ) -> dict[str, Any]:
         """生成分享海报所需数据"""
         activities_str = "、".join(activities[:10]) if activities else "探索当地"
+        
+        # 正确计算晚数
+        nights = max(days - 1, 0)
+        days_display = f"{days}天{nights}晚 深度游"
 
         prompt = f"""请为以下旅行生成分享海报所需的摘要信息：
 
 目的地：{destination}
-天数：{days} 天
+天数：{days} 天 {nights} 晚
 行程亮点：{activities_str}
 
 请返回 JSON 格式：
 {{
     "destination": "{destination}",
-    "days": "{days}天{days-1}晚 深度游",
+    "days": "{days_display}",
     "highlights": ["亮点1", "亮点2", "亮点3"],
     "budget": "预估总预算，如 ¥3000"
 }}
 
 要求：
-1. highlights 提取 3 个最吸引人的亮点
-2. budget 根据行程和天数合理估算"""
+1. highlights 提取 3 个最吸引人的亮点（从行程中选取具体景点名称）
+2. budget 根据行程和天数合理估算
+3. days 字段必须保持为 "{days_display}"，不要修改"""
 
         result = await self._call_llm_json(prompt)
         if result:
+            # 确保 days 字段使用正确计算的值，防止 LLM 修改
+            result["days"] = days_display
             return result
         return {
             "destination": destination,
-            "days": f"{days}天{days-1}晚",
+            "days": days_display,
             "highlights": ["探索未知", "品味美食", "留下回忆"],
             "budget": "¥3000起"
         }
