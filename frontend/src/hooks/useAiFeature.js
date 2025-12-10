@@ -295,8 +295,17 @@ export function useAiFeature() {
   const generatePoster = useCallback(async (forceRefresh = false) => {
     openModal('poster', '🖼️ 分享海报');
 
+    // 从实际行程计算天数（优先使用行程长度）
+    const actualDays = itinerary?.length || tripDays || 3;
+    const actualNights = actualDays > 0 ? actualDays - 1 : 0;
+
     if (!forceRefresh && cache.poster) {
-      setModalContent(cache.poster);
+      // 确保缓存的海报数据也使用正确的天数
+      const cachedWithCorrectDays = {
+        ...cache.poster,
+        days: `${actualDays}天${actualNights}晚 ${cache.poster.style || '深度游'}`,
+      };
+      setModalContent(cachedWithCorrectDays);
       return;
     }
 
@@ -306,11 +315,18 @@ export function useAiFeature() {
       ) || [];
       const result = await assistantsApi.getPosterData(
         destination,
-        tripDays,
+        actualDays,  // 使用实际天数而非 tripDays
         activities
       );
-      setCache('poster', result);
-      setModalContent(result);
+
+      // 确保返回数据包含正确的天数格式
+      const posterData = {
+        ...result,
+        days: `${actualDays}天${actualNights}晚 ${result.style || '深度游'}`,
+      };
+
+      setCache('poster', posterData);
+      setModalContent(posterData);
     } catch (error) {
       console.error('Poster data generation failed:', error);
       setModalContent({ error: '海报数据生成失败，请重试' });

@@ -145,6 +145,10 @@ async def log_requests(request: Request, call_next):
 # 注册路由
 app.include_router(router, prefix="/api/v1")
 
+# 注册图片服务路由
+from src.services.images import register_image_routes
+register_image_routes(app)
+
 
 # 根路径
 @app.get("/", tags=["Root"])

@@ -40,6 +40,13 @@ const facilityIcons = {
   parking: Car,
 };
 
+// 获取景点图片 (更稳定的fallback)
+const getAttractionImage = (title, city, type = 'attraction') => {
+  // 使用 Picsum 作为稳定的图片源 (基于标题生成唯一seed)
+  const seed = encodeURIComponent(`${title}-${city}`);
+  return `https://picsum.photos/seed/${seed}/800/400`;
+};
+
 export function ActivityDetailModal() {
   const { destination, detailModal, closeDetailModal, updateDetailActivity } =
     useTravelStore();
@@ -175,19 +182,20 @@ export function ActivityDetailModal() {
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fadeIn">
       <div className="bg-[#1a1d2d] border border-white/10 rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
         {/* 封面图 */}
-        <div className="h-56 relative overflow-hidden group">
+        <div className="h-56 relative overflow-hidden group bg-gradient-to-br from-blue-900 to-purple-900">
           <img
             src={
-              // 优先使用 photos 数组（高德 API），其次使用 image，最后使用 Unsplash
+              // 优先使用 photos 数组（高德 API），其次使用 image，最后使用 Picsum
               activity.photos?.[0] ||
               activity.image ||
-              `https://source.unsplash.com/800x400/?${activity.type},travel,${encodeURIComponent(activity.title)}`
+              activity.imageUrl ||
+              getAttractionImage(activity.title, destination, activity.type)
             }
             className="w-full h-full object-cover"
             alt={activity.title}
             onError={(e) => {
-              // 图片加载失败时使用 Unsplash
-              e.target.src = `https://source.unsplash.com/800x400/?${activity.type},travel`;
+              // 图片加载失败时隐藏图片，显示渐变背景
+              e.target.style.display = 'none';
             }}
           />
           <div className="absolute inset-0 bg-gradient-to-t from-[#1a1d2d] via-transparent to-transparent" />

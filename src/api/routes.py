@@ -853,52 +853,87 @@ async def api_generate_poster_data(request: PosterRequest) -> PosterResponse:
     return PosterResponse(**result)
 
 
-# ============================================================
-# 图片 API
-# ============================================================
+# --- 海报图片生成 ---
+from io import BytesIO
+from fastapi.responses import Response
 
 
-class ImageRequest(BaseModel):
-    """图片请求"""
-    city: str
-    image_type: str = "landmark"  # landmark, poster_bg, thumbnail
-
-
-class ImageResponse(BaseModel):
-    """图片响应"""
-    url: str
-    source: str
-    city: str
+class PosterImageRequest(BaseModel):
+    """海报图片生成请求"""
+    destination: str
+    days: int
+    nights: int
+    budget: str = ""
+    highlights: list[str] = []
+    travel_style: str = ""
+    background_url: str = ""
+    image_source: str = ""
 
 
 @router.post(
-    "/images/city",
-    response_model=ImageResponse,
-    tags=["Images"],
-    summary="获取城市图片",
+    "/poster/generate",
+    tags=["Poster"],
+    summary="生成海报图片",
+    response_class=Response,
 )
-async def api_get_city_image(request: ImageRequest) -> ImageResponse:
-    """获取城市图片 URL"""
+async def api_generate_poster_image(request: PosterImageRequest):
+    """
+    生成分享海报图片
+    
+    使用 Playwright 渲染 HTML 模板并返回 PNG 图片
+    """
+    from src.services.poster import poster_service
     from src.services.images import image_service
     
-    result = image_service.get_city_image(request.city, request.image_type)
-    return ImageResponse(**result)
-
-
-@router.get(
-    "/images/city/{city}",
-    response_model=ImageResponse,
-    tags=["Images"],
-    summary="获取城市图片 (GET)",
-)
-async def api_get_city_image_get(city: str, image_type: str = "landmark") -> ImageResponse:
-    """获取城市图片 URL (GET 方式)"""
-    from src.services.images import image_service
+    logger.info(
+        "Poster image generation",
+        destination=request.destination,
+        days=request.days
+    )
     
-    result = image_service.get_city_image(city, image_type)
-    return ImageResponse(**result)
-
-
+    # 如果没有提供背景图片，从图片服务获取
+    background_url = request.background_url
+    image_source = request.image_source
+    
+    if not background_url:
+        image_data = await image_service.get_city_image(
+            request.destination,
+            "poster_bg"
+        )
+        background_url = image_data.get("url", "")
+        image_source = image_data.get("source", "")
+    
+    try:
+        # 生成海报图片
+        image_bytes = await poster_service.generate_poster(
+            destination=request.destination,
+            days=request.days,
+            nights=request.nights,
+            budget=request.budget,
+            highlights=request.highlights,
+            travel_style=request.travel_style,
+            background_url=background_url,
+            image_source=image_source
+        )
+        
+        # 文件名需要 URL 编码以支持中文
+        from urllib.parse import quote
+        filename = f"{request.destination}_poster.png"
+        encoded_filename = quote(filename)
+        
+        return Response(
+            content=image_bytes,
+            media_type="image/png",
+            headers={
+                "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}"
+            }
+        )
+    except Exception as e:
+        logger.error("Poster generation failed", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"海报生成失败: {str(e)}"
+        )
 # ============================================================
 # 侧边栏 API
 # ============================================================

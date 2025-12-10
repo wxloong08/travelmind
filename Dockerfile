@@ -1,32 +1,24 @@
 # ============================================================
 # TravelMind Dockerfile
-# 支持 MCP (Model Context Protocol) 集成
+# 使用 Playwright 官方镜像（包含 Python + Chromium）
 # ============================================================
 
-FROM python:3.11-slim
+FROM mcr.microsoft.com/playwright/python:v1.49.0-jammy
 
 WORKDIR /app
 
-# 安装系统依赖 + Node.js（用于 MCP Server）
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    gnupg \
-    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+# 安装 Node.js（用于 MCP Server）
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 # 预安装 MCP Server（高德地图）
-# 注：博查 MCP 需要 uv/Python，暂时保留原 API 实现
 RUN npm install -g @amap/amap-maps-mcp-server
-
-# 创建非 root 用户
-RUN groupadd --gid 1000 travelmind && \
-    useradd --uid 1000 --gid 1000 --shell /bin/bash --create-home travelmind
 
 # 复制依赖文件
 COPY pyproject.toml README.md ./
 
-# 安装 Python 依赖（包括 langchain-mcp-adapters）
+# 安装 Python 依赖
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir \
     fastapi>=0.115.0 \
@@ -45,19 +37,18 @@ RUN pip install --no-cache-dir --upgrade pip && \
     python-dotenv>=1.0.0 \
     tenacity>=9.0.0 \
     structlog>=24.4.0 \
-    "langfuse>=2.0.0,<3.0.0" && \
-    echo "=== Installed packages ===" && \
-    pip list | grep -i langfuse && \
-    python -c "from langfuse.decorators import observe; print('Langfuse v2 import OK')"
+    "langfuse>=2.0.0,<3.0.0" \
+    jinja2>=3.1.0 \
+    playwright>=1.49.0
+
+# 安装 Playwright Chromium（镜像已包含，但需确保）
+RUN playwright install chromium
 
 # 复制应用代码
-COPY --chown=travelmind:travelmind src/ ./src/
+COPY src/ ./src/
 
 # 创建数据目录
-RUN mkdir -p /app/data && chown -R travelmind:travelmind /app
-
-# 切换到非 root 用户
-USER travelmind
+RUN mkdir -p /app/data
 
 # 暴露端口
 EXPOSE 8000
@@ -71,5 +62,5 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app
 
-# 启动命令
+# 启动命令（以 root 运行，Playwright 需要）
 CMD ["python", "-m", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]

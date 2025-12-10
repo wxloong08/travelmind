@@ -129,7 +129,7 @@ export function ItineraryTimeline() {
                 <div key={actIdx}>
                   {/* 交通信息卡片 */}
                   {transport && (
-                    <div className="flex items-center gap-2 py-2 px-3 mb-2 text-xs text-gray-400 bg-gray-800/50 rounded-lg border border-gray-700/50">
+                    <div className="flex flex-wrap items-center gap-2 py-2 px-3 mb-2 text-xs text-gray-400 bg-gray-800/50 rounded-lg border border-gray-700/50">
                       <span className="text-cyan-400">🚗</span>
                       <span className="text-gray-500">从</span>
                       <span className="text-gray-300">{safeRender(transport.from)}</span>
@@ -137,7 +137,7 @@ export function ItineraryTimeline() {
                       <span className="text-cyan-300 font-medium">{safeRender(transport.method)}</span>
                       <span className="text-yellow-400 font-mono">{safeRender(transport.duration)}</span>
                       {transport.detail && (
-                        <span className="text-gray-500 truncate max-w-[200px]" title={safeRender(transport.detail)}>
+                        <span className="text-gray-500" title={safeRender(transport.detail)}>
                           ({safeRender(transport.detail)})
                         </span>
                       )}
@@ -229,24 +229,60 @@ export function ItineraryTimeline() {
                     </p>
                   )}
 
-                  {/* 标签和评分 */}
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {day.accommodation.rating && (
-                      <span className="text-xs bg-amber-500/30 text-amber-200 px-2 py-0.5 rounded-full">
-                        ⭐ {safeRender(day.accommodation.rating)}
-                      </span>
-                    )}
-                    {day.accommodation.tags?.slice(0, 2).map((tag, i) => (
-                      <span key={i} className="text-xs bg-white/10 text-gray-300 px-2 py-0.5 rounded-full">
-                        {safeRender(tag)}
-                      </span>
-                    ))}
-                    {day.accommodation.stay_same_tomorrow && dayIdx < itinerary.length - 2 && (
+                  {/* 智能判断是否换酒店 */}
+                  {(() => {
+                    // 获取下一天的酒店信息
+                    const nextDay = itinerary[dayIdx + 1];
+                    const currentHotel = day.accommodation?.name;
+                    const nextHotel = nextDay?.accommodation?.name;
+                    const isLastDay = dayIdx >= itinerary.length - 1;
+                    const isSecondLastDay = dayIdx === itinerary.length - 2;
+
+                    // 最后一天和倒数第二天不显示
+                    if (isLastDay || isSecondLastDay) return null;
+
+                    // 检查是否需要换酒店
+                    const willChangeHotel = currentHotel && nextHotel &&
+                      currentHotel !== nextHotel &&
+                      !currentHotel.includes(nextHotel) &&
+                      !nextHotel.includes(currentHotel);
+
+                    if (willChangeHotel) {
+                      return (
+                        <span className="text-xs bg-yellow-500/20 text-yellow-300 px-2 py-0.5 rounded-full">
+                          ⚠️ 明日需换酒店
+                        </span>
+                      );
+                    }
+
+                    return (
                       <span className="text-xs bg-green-500/20 text-green-300 px-2 py-0.5 rounded-full">
                         ✓ 明天继续住这里
                       </span>
-                    )}
-                  </div>
+                    );
+                  })()}
+
+                  {/* 换酒店行李提示 */}
+                  {(() => {
+                    const nextDay = itinerary[dayIdx + 1];
+                    const currentHotel = day.accommodation?.name;
+                    const nextHotel = nextDay?.accommodation?.name;
+                    const willChangeHotel = currentHotel && nextHotel &&
+                      currentHotel !== nextHotel &&
+                      !currentHotel.includes(nextHotel) &&
+                      !nextHotel.includes(currentHotel);
+
+                    if (willChangeHotel && dayIdx < itinerary.length - 2) {
+                      return (
+                        <div className="mt-2 p-2 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+                          <p className="text-xs text-yellow-200/80">
+                            💼 <span className="font-medium">行李建议：</span>早餐后退房，可寄存酒店前台或行李柜，游玩结束后取回再前往新酒店
+                          </p>
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
 
                   {/* 入住提示 */}
                   {day.accommodation.check_in_note && (

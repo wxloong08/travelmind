@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=600, height=800">
+    <title>{{ destination }} 旅行海报</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", 
+                         "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+            width: 600px;
+            height: 800px;
+            overflow: hidden;
+        }
+        
+        .poster {
+            position: relative;
+            width: 600px;
+            height: 800px;
+            background: #1a1a2e;
+            overflow: hidden;
+        }
+        
+        /* 背景图片 */
+        .background {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        
+        /* 渐变遮罩 */
+        .overlay {
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(to top, 
+                rgba(0,0,0,0.9) 0%, 
+                rgba(0,0,0,0.4) 50%, 
+                transparent 100%);
+        }
+        
+        /* 内容容器 */
+        .content {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 32px;
+            color: white;
+        }
+        
+        /* 顶部 Logo */
+        .header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .logo-icon {
+            width: 24px;
+            height: 24px;
+            color: #fbbf24;
+        }
+        
+        .logo-text {
+            font-size: 14px;
+            font-weight: 500;
+            letter-spacing: 1px;
+        }
+        
+        .image-source {
+            margin-left: auto;
+            font-size: 12px;
+            color: rgba(255,255,255,0.4);
+        }
+        
+        /* 底部内容 */
+        .footer {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        
+        /* 目的地标签 */
+        .destination-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: rgba(255,255,255,0.7);
+            font-size: 14px;
+        }
+        
+        .destination-label svg {
+            width: 16px;
+            height: 16px;
+        }
+        
+        /* 目的地名称 */
+        .destination-name {
+            font-size: 48px;
+            font-weight: 700;
+            letter-spacing: -1px;
+        }
+        
+        /* 天数和预算 */
+        .stats {
+            display: flex;
+            align-items: center;
+            gap: 32px;
+        }
+        
+        .stat-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .stat-item svg {
+            width: 18px;
+            height: 18px;
+        }
+        
+        .stat-item.days svg {
+            color: #fbbf24;
+        }
+        
+        .stat-item.budget svg {
+            color: #4ade80;
+        }
+        
+        .stat-value {
+            font-size: 20px;
+            font-weight: 500;
+        }
+        
+        /* 行程亮点 */
+        .highlights {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        
+        .highlights-label {
+            font-size: 14px;
+            color: rgba(255,255,255,0.7);
+        }
+        
+        .highlights-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        
+        .highlight-tag {
+            padding: 6px 16px;
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(4px);
+            border-radius: 999px;
+            font-size: 14px;
+        }
+        
+        /* 旅行风格 */
+        .travel-style {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+            color: rgba(255,255,255,0.6);
+        }
+        
+        .travel-style svg {
+            width: 14px;
+            height: 14px;
+        }
+        
+        /* 品牌标识 */
+        .branding {
+            padding-top: 20px;
+            border-top: 1px solid rgba(255,255,255,0.1);
+            font-size: 12px;
+            color: rgba(255,255,255,0.4);
+        }
+    </style>
+</head>
+<body>
+    <div class="poster">
+        <!-- 背景图片 -->
+        {% if background_url %}
+        <img src="{{ background_url }}" alt="{{ destination }}" class="background">
+        {% endif %}
+        
+        <!-- 渐变遮罩 -->
+        <div class="overlay"></div>
+        
+        <!-- 内容 -->
+        <div class="content">
+            <!-- 顶部 -->
+            <div class="header">
+                <!-- Sparkles 图标 -->
+                <svg class="logo-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+                </svg>
+                <span class="logo-text">TravelMind</span>
+                {% if image_source and image_source != 'default' %}
+                <span class="image-source">图片来源: {{ '精选' if image_source == 'preset' else image_source }}</span>
+                {% endif %}
+            </div>
+            
+            <!-- 底部 -->
+            <div class="footer">
+                <!-- 目的地 -->
+                <div>
+                    <div class="destination-label">
+                        <!-- MapPin 图标 -->
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        <span>目的地</span>
+                    </div>
+                    <h1 class="destination-name">{{ destination }}</h1>
+                </div>
+                
+                <!-- 天数和预算 -->
+                <div class="stats">
+                    <div class="stat-item days">
+                        <!-- Calendar 图标 -->
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                        <span class="stat-value">{{ days }}天{{ nights }}晚</span>
+                    </div>
+                    
+                    {% if budget %}
+                    <div class="stat-item budget">
+                        <!-- Wallet 图标 -->
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+                        </svg>
+                        <span class="stat-value">{{ budget }}</span>
+                    </div>
+                    {% endif %}
+                </div>
+                
+                <!-- 行程亮点 -->
+                {% if highlights %}
+                <div class="highlights">
+                    <div class="highlights-label">行程亮点</div>
+                    <div class="highlights-list">
+                        {% for highlight in highlights %}
+                        <span class="highlight-tag">{{ highlight }}</span>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+                
+                <!-- 旅行风格 -->
+                {% if travel_style %}
+                <div class="travel-style">
+                    <!-- Navigation 图标 -->
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                    </svg>
+                    <span>{{ travel_style }}</span>
+                </div>
+                {% endif %}
+                
+                <!-- 品牌标识 -->
+                <div class="branding">
+                    由 TravelMind AI 智能规划
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

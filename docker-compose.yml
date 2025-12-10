@@ -33,6 +33,10 @@ services:
       # 外部 API【推荐】
       - AMAP_API_KEY=${AMAP_API_KEY:-}
       - BOCHA_API_KEY=${BOCHA_API_KEY:-}
+      # 图片搜索 API
+      - UNSPLASH_ACCESS_KEY=${UNSPLASH_ACCESS_KEY:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - GOOGLE_SEARCH_ENGINE_ID=${GOOGLE_SEARCH_ENGINE_ID:-}
       
       # 向量数据库
       - CHROMA_PERSIST_DIR=/app/data/chroma

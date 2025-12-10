@@ -1,183 +1,219 @@
 /**
- * 分享海报组件
+ * 分享海报组件 - 后端生成版
  * 
- * 使用 HTML2Canvas 生成可下载的行程海报
- * 支持目的地地标背景图
+ * 调用后端 API 使用 Playwright 生成海报图片
  */
 
-import React, { useRef, useState, useEffect } from 'react';
-import { Sparkles, Navigation, Download, Loader2, Image as ImageIcon } from 'lucide-react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
+import {
+    Sparkles,
+    Download,
+    Loader2,
+    Calendar,
+    MapPin,
+    Wallet
+} from 'lucide-react';
 
-// 预设城市背景图 - 使用 Unsplash Source 直接访问（更好的 CORS 支持）
-const CITY_BACKGROUNDS = {
-    "北京": "https://source.unsplash.com/800x1200/?beijing,forbidden-city",
-    "上海": "https://source.unsplash.com/800x1200/?shanghai,bund",
-    "杭州": "https://source.unsplash.com/800x1200/?hangzhou,west-lake",
-    "成都": "https://source.unsplash.com/800x1200/?chengdu,panda",
-    "西安": "https://source.unsplash.com/800x1200/?xian,terracotta-warriors",
-    "重庆": "https://source.unsplash.com/800x1200/?chongqing,hongyadong",
-    "广州": "https://source.unsplash.com/800x1200/?guangzhou,canton-tower",
-    "三亚": "https://source.unsplash.com/800x1200/?sanya,beach",
-    "丽江": "https://source.unsplash.com/800x1200/?lijiang,ancient-town",
-    "东京": "https://source.unsplash.com/800x1200/?tokyo,japan",
-    "香港": "https://source.unsplash.com/800x1200/?hongkong,skyline",
-    "新加坡": "https://source.unsplash.com/800x1200/?singapore,marina-bay",
-};
 
-const DEFAULT_BACKGROUND = "https://source.unsplash.com/800x1200/?travel,landscape";
+/**
+ * 从行程数据中提取亮点
+ */
+function extractHighlights(itinerary) {
+    if (!itinerary || !Array.isArray(itinerary)) return [];
+
+    const highlights = [];
+
+    for (const day of itinerary) {
+        if (day.day_type === 'arrival' || day.day_type === 'departure') continue;
+
+        for (const activity of (day.activities || [])) {
+            if (activity.type === 'attraction' ||
+                (!activity.type && !activity.title?.includes('酒店') && !activity.title?.includes('入住'))) {
+                highlights.push(activity.title);
+            }
+        }
+    }
+
+    return [...new Set(highlights)].slice(0, 4);
+}
+
+
+/**
+ * 计算天数和晚数
+ */
+function calculateTripDuration(data) {
+    const itinerary = data?.itinerary || [];
+
+    if (itinerary.length > 0) {
+        const totalDays = itinerary.length;
+        const nights = Math.max(0, totalDays - 1);
+        return { totalDays, nights };
+    }
+
+    let totalDays = 0;
+    let nights = 0;
+
+    if (typeof data?.days === 'number') {
+        totalDays = data.days;
+        nights = Math.max(0, totalDays - 1);
+    } else if (typeof data?.days === 'string') {
+        const daysMatch = data.days.match(/(\d+)\s*天/);
+        const nightsMatch = data.days.match(/(\d+)\s*晚/);
+
+        if (daysMatch) totalDays = parseInt(daysMatch[1], 10);
+        if (nightsMatch) nights = parseInt(nightsMatch[1], 10);
+        else nights = Math.max(0, totalDays - 1);
+    }
+
+    return { totalDays, nights };
+}
+
 
 export function PosterView({ data }) {
-    const posterRef = useRef(null);
+    const [posterUrl, setPosterUrl] = useState(null);
     const [isGenerating, setIsGenerating] = useState(false);
-    const [backgroundUrl, setBackgroundUrl] = useState(null);
-    const [imageLoaded, setImageLoaded] = useState(false);
-    const [loadError, setLoadError] = useState(false);
+    const [error, setError] = useState(null);
 
-    // 获取背景图 URL
-    useEffect(() => {
-        if (data?.destination) {
-            // 尝试精确匹配
-            let url = CITY_BACKGROUNDS[data.destination];
+    // 计算天数
+    const duration = calculateTripDuration(data);
+    const highlights = extractHighlights(data?.itinerary);
 
-            // 尝试模糊匹配
-            if (!url) {
-                for (const [city, imgUrl] of Object.entries(CITY_BACKGROUNDS)) {
-                    if (data.destination.includes(city) || city.includes(data.destination)) {
-                        url = imgUrl;
-                        break;
-                    }
-                }
+    // 格式化预算
+    const formatBudget = (budget) => {
+        if (!budget) return '';
+        if (typeof budget === 'number') return `¥${budget.toLocaleString()}`;
+        return String(budget).startsWith('¥') ? budget : `¥${budget}`;
+    };
+
+    // 生成海报
+    const generatePoster = useCallback(async () => {
+        if (!data?.destination) return;
+
+        setIsGenerating(true);
+        setError(null);
+        setPosterUrl(null);
+
+        try {
+            const response = await fetch('/api/v1/poster/generate', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    destination: data.destination,
+                    days: duration.totalDays,
+                    nights: duration.nights,
+                    budget: formatBudget(data.budget),
+                    highlights: highlights,
+                    travel_style: data.travelStyle || '',
+                    background_url: '',
+                    image_source: ''
+                }),
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
             }
 
-            setBackgroundUrl(url || DEFAULT_BACKGROUND);
-            setImageLoaded(false);
-            setLoadError(false);
+            // 获取图片 blob
+            const blob = await response.blob();
+            const url = URL.createObjectURL(blob);
+            setPosterUrl(url);
+        } catch (err) {
+            console.error('生成海报失败:', err);
+            setError(err.message);
+        } finally {
+            setIsGenerating(false);
+        }
+    }, [data, duration, highlights]);
+
+    // 首次加载自动生成
+    useEffect(() => {
+        if (data?.destination && !posterUrl && !isGenerating) {
+            generatePoster();
         }
     }, [data?.destination]);
 
-    // 预加载图片
+    // 下载海报
+    const handleDownload = () => {
+        if (!posterUrl) return;
+
+        const link = document.createElement('a');
+        link.href = posterUrl;
+        link.download = `${data?.destination || '旅行'}行程海报.png`;
+        link.click();
+    };
+
+    // 清理 blob URL
     useEffect(() => {
-        if (backgroundUrl) {
-            const img = new Image();
-            img.crossOrigin = 'anonymous';
-            img.onload = () => {
-                setImageLoaded(true);
-                setLoadError(false);
-            };
-            img.onerror = () => {
-                setLoadError(true);
-                setImageLoaded(true); // 仍然设置为 loaded 以显示渐变背景
-            };
-            img.src = backgroundUrl;
-        }
-    }, [backgroundUrl]);
-
-    if (!data) return <div className="text-center text-gray-500">无法获取海报数据</div>;
-
-    const handleDownload = async () => {
-        setIsGenerating(true);
-        try {
-            // 动态加载 html2canvas
-            if (!window.html2canvas) {
-                await new Promise((resolve, reject) => {
-                    const script = document.createElement('script');
-                    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
-                    script.onload = resolve;
-                    script.onerror = reject;
-                    document.head.appendChild(script);
-                });
+        return () => {
+            if (posterUrl) {
+                URL.revokeObjectURL(posterUrl);
             }
-
-            const canvas = await window.html2canvas(posterRef.current, {
-                useCORS: true,
-                allowTaint: true,
-                backgroundColor: '#312e81', // 备用背景色
-                scale: 2, // 高清
-                logging: false,
-            });
-
-            const link = document.createElement('a');
-            link.download = `TravelMind-${data.destination}.png`;
-            link.href = canvas.toDataURL('image/png');
-            link.click();
-        } catch (error) {
-            console.error('Poster generation failed', error);
-            alert('海报生成失败，请稍后重试');
-        }
-        setIsGenerating(false);
-    };
-
-    // 根据图片加载状态决定背景样式
-    const getBackgroundStyle = () => {
-        if (imageLoaded && !loadError && backgroundUrl) {
-            return {
-                backgroundImage: `linear-gradient(to bottom, rgba(30, 27, 75, 0.6), rgba(88, 28, 135, 0.85)), url(${backgroundUrl})`,
-                backgroundSize: 'cover',
-                backgroundPosition: 'center',
-            };
-        }
-        // 默认渐变背景
-        return {
-            background: 'linear-gradient(to bottom right, #312e81, #6b21a8)',
         };
-    };
+    }, [posterUrl]);
 
     return (
-        <div className="flex flex-col items-center animate-fadeIn gap-4">
-            {/* 海报容器 */}
-            <div
-                ref={posterRef}
-                className="w-full max-w-sm border border-white/20 rounded-2xl overflow-hidden shadow-2xl relative aspect-[3/4] flex flex-col"
-                style={getBackgroundStyle()}
-            >
-                {/* 装饰元素 */}
-                <div className="absolute top-0 right-0 p-4 opacity-20">
-                    <Sparkles size={100} className="text-white" />
-                </div>
-
-                {/* 内容区域 */}
-                <div className="relative z-10 flex-1 flex flex-col justify-between p-6">
-                    <div>
-                        <h2 className="text-3xl font-black text-white tracking-tight mb-1 drop-shadow-lg">
-                            {data.destination}
-                        </h2>
-                        <p className="text-indigo-200 text-sm uppercase tracking-widest drop-shadow">
-                            {data.days}
-                        </p>
+        <div className="flex flex-col gap-4">
+            {/* 海报预览区域 */}
+            <div className="relative w-full aspect-[3/4] rounded-xl overflow-hidden shadow-2xl bg-gray-900">
+                {/* 加载中 */}
+                {isGenerating && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-900 text-white">
+                        <Loader2 className="w-12 h-12 animate-spin text-amber-400 mb-4" />
+                        <p className="text-gray-400">正在生成海报...</p>
+                        <p className="text-xs text-gray-600 mt-2">首次生成可能需要几秒钟</p>
                     </div>
+                )}
 
-                    <div className="space-y-4 my-6">
-                        {data.highlights?.map((h, i) => (
-                            <div key={i} className="flex items-center gap-3">
-                                <div className="w-1.5 h-1.5 bg-white rounded-full shadow-lg"></div>
-                                <span className="text-white text-lg font-light drop-shadow">{h}</span>
-                            </div>
-                        ))}
+                {/* 错误状态 */}
+                {error && !isGenerating && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-900 text-white p-6">
+                        <div className="text-red-400 mb-4">生成失败</div>
+                        <p className="text-gray-500 text-sm text-center mb-4">{error}</p>
+                        <button
+                            onClick={generatePoster}
+                            className="flex items-center gap-2 px-4 py-2 bg-amber-500/20 text-amber-400 rounded-lg hover:bg-amber-500/30 transition-colors"
+                        >
+                            <RefreshCw className="w-4 h-4" />
+                            重试
+                        </button>
                     </div>
+                )}
 
-                    <div className="mt-auto">
-                        <div className="flex items-end justify-between">
-                            <div>
-                                <p className="text-xs text-indigo-300 mb-1">Generated by</p>
-                                <div className="flex items-center gap-1.5">
-                                    <div className="bg-white p-1 rounded-md">
-                                        <Navigation size={12} className="text-indigo-900" />
-                                    </div>
-                                    <span className="font-bold text-white drop-shadow">TravelMind</span>
-                                </div>
-                            </div>
-                            <div className="text-right">
-                                <p className="text-xs text-indigo-300 mb-1">Budget Est.</p>
-                                <p className="text-xl font-bold text-white drop-shadow-lg">{data.budget}</p>
-                            </div>
+                {/* 海报图片 */}
+                {posterUrl && !isGenerating && (
+                    <img
+                        src={posterUrl}
+                        alt="旅行海报"
+                        className="w-full h-full object-contain"
+                    />
+                )}
+
+                {/* 初始状态 */}
+                {!posterUrl && !isGenerating && !error && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-indigo-600 to-purple-700 text-white p-6">
+                        <Sparkles className="w-12 h-12 text-amber-400 mb-4" />
+                        <h3 className="text-2xl font-bold mb-2">{data?.destination}</h3>
+                        <div className="flex items-center gap-4 text-white/80 mb-6">
+                            <span className="flex items-center gap-1">
+                                <Calendar className="w-4 h-4" />
+                                {duration.totalDays}天{duration.nights}晚
+                            </span>
+                            {data?.budget && (
+                                <span className="flex items-center gap-1">
+                                    <Wallet className="w-4 h-4" />
+                                    {formatBudget(data.budget)}
+                                </span>
+                            )}
                         </div>
-                    </div>
-                </div>
-
-                {/* 图片加载状态指示 */}
-                {!imageLoaded && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/30">
-                        <Loader2 size={24} className="text-white animate-spin" />
+                        <button
+                            onClick={generatePoster}
+                            className="flex items-center gap-2 px-6 py-3 bg-amber-500 text-white rounded-xl font-medium hover:bg-amber-600 transition-colors"
+                        >
+                            <Sparkles className="w-5 h-5" />
+                            生成海报
+                        </button>
                     </div>
                 )}
             </div>
@@ -185,19 +221,12 @@ export function PosterView({ data }) {
             {/* 下载按钮 */}
             <button
                 onClick={handleDownload}
-                disabled={isGenerating}
-                className="flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-full font-bold shadow-lg shadow-blue-600/30 transition-all hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={!posterUrl || isGenerating}
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-xl font-medium transition-all hover:shadow-lg hover:shadow-amber-500/25 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-                {isGenerating ? (
-                    <Loader2 size={18} className="animate-spin" />
-                ) : (
-                    <Download size={18} />
-                )}
-                {isGenerating ? '正在渲染...' : '保存海报到相册'}
+                <Download className="w-5 h-5" />
+                下载海报
             </button>
-            <p className="text-center text-xs text-gray-500">
-                使用 HTML2Canvas 技术生成
-            </p>
         </div>
     );
 }

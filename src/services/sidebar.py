@@ -72,16 +72,19 @@ def _get_weather_icon(weather: str) -> str:
 
 async def get_local_news(city: str) -> list[dict[str, Any]]:
     """
-    获取目的地当地资讯
+    获取目的地当地资讯 - 旅游相关、安全、新鲜
     """
     from src.tools import web_search
+    from datetime import datetime
+    
+    current_year = datetime.now().year
     
     try:
-        # 多个搜索查询
+        # 优化搜索查询 - 聚焦于当前年份和旅游相关内容
         queries = [
-            f"{city} 景点 最新消息",
-            f"{city} 旅游 活动",
-            f"{city} 交通 管制",
+            f"{city} 景区 开放时间 门票 {current_year}",
+            f"{city} 旅游攻略 必去景点 {current_year}",
+            f"{city} 美食 特色小吃 推荐",
         ]
         
         news_items = []
@@ -90,27 +93,36 @@ async def get_local_news(city: str) -> list[dict[str, Any]]:
             try:
                 results = await web_search.ainvoke({
                     "query": query,
-                    "count": 3,
-                    "freshness": "week"
+                    "count": 5,
+                    "freshness": "week"  # 改回一周，确保新鲜度
                 })
                 
-                for r in results.get("results", [])[:2]:
+                for r in results.get("results", [])[:3]:
                     title = r.get("title", "")
+                    snippet = r.get("snippet", "")
+                    url = r.get("url", "")
+                    
+                    # 过滤不安全或不相关的内容
+                    if not _is_safe_url(url):
+                        continue
+                    if not _is_travel_relevant(title, snippet):
+                        continue
+                    
                     # 截断过长标题
                     if len(title) > 40:
                         title = title[:37] + "..."
                     
                     news_items.append({
                         "title": title,
-                        "url": r.get("url", ""),
+                        "url": url,
                         "source": r.get("source", ""),
-                        "snippet": r.get("snippet", "")[:100] if r.get("snippet") else "",
-                        "category": _categorize_news(query, title),
+                        "snippet": snippet[:100] if snippet else "",
+                        "category": _categorize_news(query, title, snippet),
                     })
             except Exception as e:
                 logger.warning(f"Search failed for query: {query}", error=str(e))
         
-        # 去重
+        # 去重并限制数量
         seen = set()
         unique_news = []
         for item in news_items:
@@ -124,14 +136,79 @@ async def get_local_news(city: str) -> list[dict[str, Any]]:
         return []
 
 
-def _categorize_news(query: str, title: str) -> str:
+def _is_safe_url(url: str) -> bool:
+    """判断URL是否安全可信"""
+    if not url:
+        return False
+    
+    # 必须是 HTTPS
+    if not url.startswith("https://"):
+        return False
+    
+    # 排除可疑域名
+    suspicious_patterns = [
+        "ads.", "ad.", "tracker.", "click.",
+        ".xyz", ".top", ".loan", ".work",
+    ]
+    url_lower = url.lower()
+    for pattern in suspicious_patterns:
+        if pattern in url_lower:
+            return False
+    
+    # 优先可信来源
+    trusted_domains = [
+        "baidu.com", "sohu.com", "sina.com", "163.com",
+        "qq.com", "ctrip.com", "mafengwo.cn", "dianping.com",
+        "xiaohongshu.com", "douyin.com", "weixin.qq.com",
+        "gov.cn", "china.com", "xinhua",
+    ]
+    for domain in trusted_domains:
+        if domain in url_lower:
+            return True
+    
+    return True  # 默认信任
+
+
+def _is_travel_relevant(title: str, snippet: str) -> bool:
+    """判断内容是否与旅游相关"""
+    text = (title + " " + snippet).lower()
+    
+    # 排除无关内容
+    exclude_keywords = ["招聘", "房价", "楼盘", "股票", "政策", "会议", "领导", "政府"]
+    for kw in exclude_keywords:
+        if kw in text:
+            return False
+    
+    # 包含旅游相关关键词
+    travel_keywords = ["景点", "景区", "旅游", "游玩", "门票", "攻略", "打卡", 
+                       "酒店", "美食", "特色", "推荐", "必去", "网红", "体验"]
+    for kw in travel_keywords:
+        if kw in text:
+            return True
+    
+    return True  # 默认保留
+
+
+def _categorize_news(query: str, title: str, snippet: str = "") -> str:
     """分类资讯类型"""
-    if "景点" in query or "景点" in title:
+    text = title + " " + snippet
+    
+    # 景点相关
+    if any(kw in text for kw in ["景点", "景区", "打卡", "网红", "必去"]):
         return "attractions"
-    if "交通" in query or "交通" in title:
-        return "transport"
-    if "活动" in query:
+    
+    # 活动/节庆
+    if any(kw in text for kw in ["活动", "节庆", "文化节", "演出", "展览"]):
         return "events"
+    
+    # 交通
+    if any(kw in text for kw in ["交通", "地铁", "公交", "机场", "高铁"]):
+        return "transport"
+    
+    # 攻略
+    if any(kw in text for kw in ["攻略", "推荐", "注意事项", "小贴士"]):
+        return "tips"
+    
     return "general"
 
 

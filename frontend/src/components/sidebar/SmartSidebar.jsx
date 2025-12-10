@@ -26,10 +26,16 @@ const API_BASE = '/api/v1';
 // === 今日路线 Widget ===
 const MiniMapWidget = ({ itinerary }) => {
     const [selectedDayIdx, setSelectedDayIdx] = useState(0);
+    const { setActiveTab } = useTravelStore();
     const day = itinerary?.[selectedDayIdx];
 
     // 获取活动数据（兼容不同数据结构）
     const activities = day?.activities || day?.items || day?.schedule || [];
+
+    // 处理查看完整地图
+    const handleViewMap = () => {
+        setActiveTab('map');
+    };
 
     if (!day) {
         return (
@@ -97,7 +103,10 @@ const MiniMapWidget = ({ itinerary }) => {
             </div>
 
             {/* 查看地图按钮 */}
-            <button className="w-full mt-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/5 rounded text-xs text-blue-300 transition-colors">
+            <button
+                onClick={handleViewMap}
+                className="w-full mt-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/5 rounded text-xs text-blue-300 transition-colors"
+            >
                 查看完整地图
             </button>
         </div>
@@ -161,20 +170,49 @@ const WeatherTrendWidget = ({ weatherData, destination }) => {
 
 // === 当地资讯 Widget ===
 const LocalNewsWidget = ({ newsData, onRefresh, isLoading }) => {
+    // 分类名称映射和样式
+    const getCategoryDisplay = (category) => {
+        const categoryMap = {
+            'attractions': { label: '景点', style: 'text-green-400 bg-green-400/10' },
+            'events': { label: '活动', style: 'text-pink-400 bg-pink-400/10' },
+            'transport': { label: '交通', style: 'text-orange-400 bg-orange-400/10' },
+            'tips': { label: '攻略', style: 'text-blue-400 bg-blue-400/10' },
+            'general': { label: '资讯', style: 'text-gray-400 bg-gray-400/10' },
+        };
+        return categoryMap[category] || categoryMap['general'];
+    };
+
     const getTagStyle = (tag) => {
+        // 兼容旧格式（中文标签）和新格式（英文分类）
+        const display = getCategoryDisplay(tag);
+        if (display.style !== 'text-gray-400 bg-gray-400/10') {
+            return display.style;
+        }
+
+        // 旧格式兼容
         switch (tag) {
             case '警告':
             case 'Warning':
             case '交通':
-                return 'text-red-400 bg-red-400/10';
+                return 'text-orange-400 bg-orange-400/10';
             case '活动':
             case 'Event':
                 return 'text-pink-400 bg-pink-400/10';
             case '景点':
                 return 'text-green-400 bg-green-400/10';
-            default:
+            case '攻略':
                 return 'text-blue-400 bg-blue-400/10';
+            default:
+                return 'text-gray-400 bg-gray-400/10';
         }
+    };
+
+    const getTagLabel = (tag) => {
+        const display = getCategoryDisplay(tag);
+        if (display.label !== '资讯') {
+            return display.label;
+        }
+        return tag; // 如果是中文标签，直接返回
     };
 
     // 点击资讯跳转到外部链接
@@ -218,7 +256,7 @@ const LocalNewsWidget = ({ newsData, onRefresh, isLoading }) => {
                             </div>
                             <div className="flex justify-between items-center mt-1">
                                 <span className={`text-[9px] px-1.5 py-0.5 rounded ${getTagStyle(news.tag)}`}>
-                                    {news.tag}
+                                    {getTagLabel(news.tag)}
                                 </span>
                             </div>
                         </div>
