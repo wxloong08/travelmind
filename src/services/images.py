@@ -20,6 +20,7 @@
 """
 
 import os
+import random
 import structlog
 import httpx
 from typing import Optional, Literal
@@ -33,53 +34,59 @@ logger = structlog.get_logger()
 
 PRESET_CITY_IMAGES = {
     # ===== 一线旅游城市 =====
+    # poster_bg 使用列表支持随机选择
     "北京": {
         "landmark": "https://images.unsplash.com/photo-1508804185872-d7badad00f7d?w=1200&h=800&fit=crop&q=80",
-        "poster_bg": "https://images.unsplash.com/photo-1508804185872-d7badad00f7d?w=800&h=1200&fit=crop&q=80",
+        "poster_bg": [
+            "https://images.unsplash.com/photo-1508804185872-d7badad00f7d?w=800&h=1200&fit=crop&q=80",  # 长城
+            "https://images.unsplash.com/photo-1584266032559-fe1c6b1db6fa?w=800&h=1200&fit=crop&q=80",  # 故宫
+            "https://images.unsplash.com/photo-1549893072-4bc678117f45?w=800&h=1200&fit=crop&q=80",    # 天安门
+            "https://images.unsplash.com/photo-1548707309-dcebeab9ea9b?w=800&h=1200&fit=crop&q=80",    # 天坛
+        ],
         "thumbnail": "https://images.unsplash.com/photo-1508804185872-d7badad00f7d?w=400&h=300&fit=crop&q=80",
-        "地标": "天安门/故宫",
+        "地标": "天安门/长城/故宫/天坛",
     },
     "上海": {
         "landmark": "https://images.unsplash.com/photo-1474181487882-5abf3f0ba6c2?w=1200&h=800&fit=crop&q=80",
         "poster_bg": "https://images.unsplash.com/photo-1538428494232-9c0d8a3ab403?w=800&h=1200&fit=crop&q=80",
         "thumbnail": "https://images.unsplash.com/photo-1474181487882-5abf3f0ba6c2?w=400&h=300&fit=crop&q=80",
-        "地标": "外滩/陆家嘴",
+        "地标": "外滩/陆家嘴/东方明珠/上海塔",
     },
     "杭州": {
         "landmark": "https://images.unsplash.com/photo-1598887142487-3c854d51eabb?w=1200&h=800&fit=crop&q=80",
         "poster_bg": "https://images.unsplash.com/photo-1598887142487-3c854d51eabb?w=800&h=1200&fit=crop&q=80",
         "thumbnail": "https://images.unsplash.com/photo-1598887142487-3c854d51eabb?w=400&h=300&fit=crop&q=80",
-        "地标": "西湖",
+        "地标": "西湖/雷峰塔/断桥/雷峰塔",
     },
     "成都": {
         "landmark": "https://images.unsplash.com/photo-1618281372631-17e14dac667b?w=1200&h=800&fit=crop&q=80",
         "poster_bg": "https://images.unsplash.com/photo-1618281372631-17e14dac667b?w=800&h=1200&fit=crop&q=80",
         "thumbnail": "https://images.unsplash.com/photo-1618281372631-17e14dac667b?w=400&h=300&fit=crop&q=80",
-        "地标": "大熊猫/宽窄巷子",
+        "地标": "大熊猫/宽窄巷子/锦里/武侯祠",
     },
     "西安": {
         "landmark": "https://images.unsplash.com/photo-1561361513-2d000a50f0dc?w=1200&h=800&fit=crop&q=80",
         "poster_bg": "https://images.unsplash.com/photo-1561361513-2d000a50f0dc?w=800&h=1200&fit=crop&q=80",
         "thumbnail": "https://images.unsplash.com/photo-1561361513-2d000a50f0dc?w=400&h=300&fit=crop&q=80",
-        "地标": "兵马俑",
+        "地标": "兵马俑/大雁塔/钟楼/回民街",
     },
     "重庆": {
         "landmark": "https://images.unsplash.com/photo-1576673783619-95e5f7d15dd3?w=1200&h=800&fit=crop&q=80",
         "poster_bg": "https://images.unsplash.com/photo-1576673783619-95e5f7d15dd3?w=800&h=1200&fit=crop&q=80",
         "thumbnail": "https://images.unsplash.com/photo-1576673783619-95e5f7d15dd3?w=400&h=300&fit=crop&q=80",
-        "地标": "洪崖洞",
+        "地标": "洪崖洞/解放碑/长江索道/磁器口",
     },
     "广州": {
         "landmark": "https://images.unsplash.com/photo-1583996607484-883ac1ed28a5?w=1200&h=800&fit=crop&q=80",
         "poster_bg": "https://images.unsplash.com/photo-1583996607484-883ac1ed28a5?w=800&h=1200&fit=crop&q=80",
         "thumbnail": "https://images.unsplash.com/photo-1583996607484-883ac1ed28a5?w=400&h=300&fit=crop&q=80",
-        "地标": "广州塔",
+        "地标": "广州塔/珠江新城/天河城/上下九步行街",
     },
     "深圳": {
         "landmark": "https://images.unsplash.com/photo-1534274867514-d5b47ef89ed7?w=1200&h=800&fit=crop&q=80",
         "poster_bg": "https://images.unsplash.com/photo-1534274867514-d5b47ef89ed7?w=800&h=1200&fit=crop&q=80",
         "thumbnail": "https://images.unsplash.com/photo-1534274867514-d5b47ef89ed7?w=400&h=300&fit=crop&q=80",
-        "地标": "深圳湾",
+        "地标": "深圳湾/华侨城/深圳会展中心/深圳湾公园",
     },
     
     # ===== 热门旅游城市 =====
@@ -87,67 +94,67 @@ PRESET_CITY_IMAGES = {
         "landmark": "https://images.unsplash.com/photo-1559628233-100c798642d4?w=1200&h=800&fit=crop&q=80",
         "poster_bg": "https://images.unsplash.com/photo-1559628233-100c798642d4?w=800&h=1200&fit=crop&q=80",
         "thumbnail": "https://images.unsplash.com/photo-1559628233-100c798642d4?w=400&h=300&fit=crop&q=80",
-        "地标": "亚龙湾",
+        "地标": "亚龙湾/天涯海角/南山寺/蜈支洲岛",
     },
     "厦门": {
         "landmark": "https://images.unsplash.com/photo-1569154941061-e231b4725ef1?w=1200&h=800&fit=crop&q=80",
         "poster_bg": "https://images.unsplash.com/photo-1569154941061-e231b4725ef1?w=800&h=1200&fit=crop&q=80",
         "thumbnail": "https://images.unsplash.com/photo-1569154941061-e231b4725ef1?w=400&h=300&fit=crop&q=80",
-        "地标": "鼓浪屿",
+        "地标": "鼓浪屿/厦门大学/曾厝垵/南普陀寺",
     },
     "青岛": {
         "landmark": "https://images.unsplash.com/photo-1545893835-abaa50cbe628?w=1200&h=800&fit=crop&q=80",
         "poster_bg": "https://images.unsplash.com/photo-1545893835-abaa50cbe628?w=800&h=1200&fit=crop&q=80",
         "thumbnail": "https://images.unsplash.com/photo-1545893835-abaa50cbe628?w=400&h=300&fit=crop&q=80",
-        "地标": "栈桥",
+        "地标": "栈桥/八大关/青岛啤酒博物馆/五四广场",
     },
     "大理": {
         "landmark": "https://images.unsplash.com/photo-1582920980795-2f97b0834c59?w=1200&h=800&fit=crop&q=80",
         "poster_bg": "https://images.unsplash.com/photo-1582920980795-2f97b0834c59?w=800&h=1200&fit=crop&q=80",
         "thumbnail": "https://images.unsplash.com/photo-1582920980795-2f97b0834c59?w=400&h=300&fit=crop&q=80",
-        "地标": "洱海",
+        "地标": "洱海/大理古城/崇圣寺三塔/喜洲古镇",
     },
     "丽江": {
         "landmark": "https://images.unsplash.com/photo-1528181304800-259b08848526?w=1200&h=800&fit=crop&q=80",
         "poster_bg": "https://images.unsplash.com/photo-1528181304800-259b08848526?w=800&h=1200&fit=crop&q=80",
         "thumbnail": "https://images.unsplash.com/photo-1528181304800-259b08848526?w=400&h=300&fit=crop&q=80",
-        "地标": "古城/玉龙雪山",
+        "地标": "古城/玉龙雪山/束河古镇/拉市海",
     },
     "桂林": {
         "landmark": "https://images.unsplash.com/photo-1537531383496-f4749b8032cf?w=1200&h=800&fit=crop&q=80",
         "poster_bg": "https://images.unsplash.com/photo-1537531383496-f4749b8032cf?w=800&h=1200&fit=crop&q=80",
         "thumbnail": "https://images.unsplash.com/photo-1537531383496-f4749b8032cf?w=400&h=300&fit=crop&q=80",
-        "地标": "漓江/象鼻山",
+        "地标": "漓江/象鼻山/阳朔/桂林两江四湖/银子山/龙脊梯田",
     },
     "黄山": {
         "landmark": "https://images.unsplash.com/photo-1513415756790-2ac1db1297d0?w=1200&h=800&fit=crop&q=80",
         "poster_bg": "https://images.unsplash.com/photo-1513415756790-2ac1db1297d0?w=800&h=1200&fit=crop&q=80",
         "thumbnail": "https://images.unsplash.com/photo-1513415756790-2ac1db1297d0?w=400&h=300&fit=crop&q=80",
-        "地标": "黄山云海",
+        "地标": "黄山云海/西海大峡谷/光明顶/始信峰",
     },
     "张家界": {
         "landmark": "https://images.unsplash.com/photo-1518709414768-a88981a4515d?w=1200&h=800&fit=crop&q=80",
         "poster_bg": "https://images.unsplash.com/photo-1518709414768-a88981a4515d?w=800&h=1200&fit=crop&q=80",
         "thumbnail": "https://images.unsplash.com/photo-1518709414768-a88981a4515d?w=400&h=300&fit=crop&q=80",
-        "地标": "天门山",
+        "地标": "天门山/武陵源/张家界国家森林公园/张家界大峡谷",
     },
     "拉萨": {
         "landmark": "https://images.unsplash.com/photo-1516545595035-b503f250f8ce?w=1200&h=800&fit=crop&q=80",
         "poster_bg": "https://images.unsplash.com/photo-1516545595035-b503f250f8ce?w=800&h=1200&fit=crop&q=80",
         "thumbnail": "https://images.unsplash.com/photo-1516545595035-b503f250f8ce?w=400&h=300&fit=crop&q=80",
-        "地标": "布达拉宫",
+        "地标": "布达拉宫/大昭寺/八廓街/罗布林卡",
     },
     "南京": {
         "landmark": "https://images.unsplash.com/photo-1599571234909-29ed5d1321d6?w=1200&h=800&fit=crop&q=80",
         "poster_bg": "https://images.unsplash.com/photo-1599571234909-29ed5d1321d6?w=800&h=1200&fit=crop&q=80",
         "thumbnail": "https://images.unsplash.com/photo-1599571234909-29ed5d1321d6?w=400&h=300&fit=crop&q=80",
-        "地标": "中山陵",
+        "地标": "中山陵/玄武湖/夫子庙/明孝陵/栖霞寺",
     },
     "苏州": {
         "landmark": "https://images.unsplash.com/photo-1584466990297-a25c4e31d028?w=1200&h=800&fit=crop&q=80",
         "poster_bg": "https://images.unsplash.com/photo-1584466990297-a25c4e31d028?w=800&h=1200&fit=crop&q=80",
         "thumbnail": "https://images.unsplash.com/photo-1584466990297-a25c4e31d028?w=400&h=300&fit=crop&q=80",
-        "地标": "拙政园",
+        "地标": "拙政园/留园/狮子林/虎丘/平江路",
     },
     
     # ===== 国际热门城市 =====
@@ -155,7 +162,7 @@ PRESET_CITY_IMAGES = {
         "landmark": "https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?w=1200&h=800&fit=crop&q=80",
         "poster_bg": "https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?w=800&h=1200&fit=crop&q=80",
         "thumbnail": "https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?w=400&h=300&fit=crop&q=80",
-        "地标": "东京塔/浅草寺",
+        "地标": "东京塔/浅草寺/上野公园/东京迪士尼/东京海洋公园",
     },
     "大阪": {
         "landmark": "https://images.unsplash.com/photo-1590559899731-a382839e5549?w=1200&h=800&fit=crop&q=80",
@@ -167,31 +174,31 @@ PRESET_CITY_IMAGES = {
         "landmark": "https://images.unsplash.com/photo-1493976040374-85c8e12f0c0e?w=1200&h=800&fit=crop&q=80",
         "poster_bg": "https://images.unsplash.com/photo-1493976040374-85c8e12f0c0e?w=800&h=1200&fit=crop&q=80",
         "thumbnail": "https://images.unsplash.com/photo-1493976040374-85c8e12f0c0e?w=400&h=300&fit=crop&q=80",
-        "地标": "金阁寺/伏见稻荷",
+        "地标": "金阁寺/伏见稻荷大社/清水寺/岚山/清水寺",
     },
     "香港": {
         "landmark": "https://images.unsplash.com/photo-1536599018102-9f803c140fc1?w=1200&h=800&fit=crop&q=80",
         "poster_bg": "https://images.unsplash.com/photo-1536599018102-9f803c140fc1?w=800&h=1200&fit=crop&q=80",
         "thumbnail": "https://images.unsplash.com/photo-1536599018102-9f803c140fc1?w=400&h=300&fit=crop&q=80",
-        "地标": "维多利亚港",
+        "地标": "维多利亚港/香港迪士尼/香港海洋公园/香港夜景",
     },
     "新加坡": {
         "landmark": "https://images.unsplash.com/photo-1525625293386-3f8f99389edd?w=1200&h=800&fit=crop&q=80",
         "poster_bg": "https://images.unsplash.com/photo-1525625293386-3f8f99389edd?w=800&h=1200&fit=crop&q=80",
         "thumbnail": "https://images.unsplash.com/photo-1525625293386-3f8f99389edd?w=400&h=300&fit=crop&q=80",
-        "地标": "滨海湾金沙",
+        "地标": "滨海湾金沙/新加坡动物园/新加坡植物园/新加坡夜景",
     },
     "曼谷": {
         "landmark": "https://images.unsplash.com/photo-1508009603885-50cf7c579365?w=1200&h=800&fit=crop&q=80",
         "poster_bg": "https://images.unsplash.com/photo-1508009603885-50cf7c579365?w=800&h=1200&fit=crop&q=80",
         "thumbnail": "https://images.unsplash.com/photo-1508009603885-50cf7c579365?w=400&h=300&fit=crop&q=80",
-        "地标": "大皇宫",
+        "地标": "大皇宫/曼谷夜景/暹罗广场/大皇宫/暹罗广场",
     },
     "巴黎": {
         "landmark": "https://images.unsplash.com/photo-1502602898657-3e91760cbb34?w=1200&h=800&fit=crop&q=80",
         "poster_bg": "https://images.unsplash.com/photo-1502602898657-3e91760cbb34?w=800&h=1200&fit=crop&q=80",
         "thumbnail": "https://images.unsplash.com/photo-1502602898657-3e91760cbb34?w=400&h=300&fit=crop&q=80",
-        "地标": "埃菲尔铁塔",
+        "地标": "埃菲尔铁塔/巴黎圣母院/卢浮宫/巴黎圣母院/巴黎圣母院",
     },
     "伦敦": {
         "landmark": "https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?w=1200&h=800&fit=crop&q=80",
@@ -203,7 +210,7 @@ PRESET_CITY_IMAGES = {
         "landmark": "https://images.unsplash.com/photo-1496442226666-8d4d0e62e6e9?w=1200&h=800&fit=crop&q=80",
         "poster_bg": "https://images.unsplash.com/photo-1496442226666-8d4d0e62e6e9?w=800&h=1200&fit=crop&q=80",
         "thumbnail": "https://images.unsplash.com/photo-1496442226666-8d4d0e62e6e9?w=400&h=300&fit=crop&q=80",
-        "地标": "自由女神像/时代广场",
+        "地标": "自由女神像/时代广场/帝国大厦",
     },
 }
 
@@ -386,11 +393,8 @@ class ImageService:
         """
         logger.info("Getting attraction image", attraction=attraction_name, city=city)
         
-        # ===== 优先级 1: 预设景点图片（Unsplash 直链）=====
-        result = self._get_preset_attraction_image(attraction_name)
-        if result:
-            logger.info("Using preset attraction image", attraction=attraction_name)
-            return result
+        # 注意：跳过预设景点图片，因为很多 Unsplash URL 已失效
+        # 直接使用 API 搜索确保图片与景点相关
         
         # ===== 优先级 2: Google Custom Search API =====
         if self.google_api_key and self.google_search_engine_id:
@@ -425,13 +429,25 @@ class ImageService:
         }
     
     def _get_preset_city_image(self, city: str, image_type: str) -> dict | None:
-        """检查预设城市图片"""
+        """检查预设城市图片，支持随机选择"""
+        
+        def get_image_url(data, img_type):
+            """从预设数据获取图片 URL，支持列表随机选择"""
+            value = data.get(img_type)
+            if value is None:
+                return None
+            # 如果是列表，随机选择一个
+            if isinstance(value, list):
+                return random.choice(value)
+            return value
+        
         # 精确匹配
         if city in PRESET_CITY_IMAGES:
             data = PRESET_CITY_IMAGES[city]
-            if image_type in data:
+            url = get_image_url(data, image_type)
+            if url:
                 return {
-                    "url": data[image_type],
+                    "url": url,
                     "source": "preset",
                     "city": city,
                     "地标": data.get("地标", ""),
@@ -440,9 +456,10 @@ class ImageService:
         # 模糊匹配（如"北京市" → "北京"）
         for key, data in PRESET_CITY_IMAGES.items():
             if key in city or city in key:
-                if image_type in data:
+                url = get_image_url(data, image_type)
+                if url:
                     return {
-                        "url": data[image_type],
+                        "url": url,
                         "source": "preset",
                         "city": key,
                         "地标": data.get("地标", ""),

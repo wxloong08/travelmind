@@ -9,10 +9,12 @@ import {
     Sparkles,
     Download,
     Loader2,
+    RefreshCw,
     Calendar,
     MapPin,
     Wallet
 } from 'lucide-react';
+import useTravelStore from '../../store/useTravelStore';
 
 
 /**
@@ -70,9 +72,16 @@ function calculateTripDuration(data) {
 
 
 export function PosterView({ data }) {
-    const [posterUrl, setPosterUrl] = useState(null);
+    // 使用 store 缓存海报 URL，避免模态框关闭后丢失
+    const { getCache, setCache, posterTrigger } = useTravelStore();
+    const cachedPosterUrl = getCache('posterUrl');
+
+    const [posterUrl, setPosterUrl] = useState(cachedPosterUrl || null);
     const [isGenerating, setIsGenerating] = useState(false);
     const [error, setError] = useState(null);
+
+    // 用于跟踪上一次的 trigger 值
+    const prevTriggerRef = useRef(posterTrigger);
 
     // 计算天数
     const duration = calculateTripDuration(data);
@@ -119,20 +128,24 @@ export function PosterView({ data }) {
             const blob = await response.blob();
             const url = URL.createObjectURL(blob);
             setPosterUrl(url);
+            // 保存到缓存，避免模态框关闭后丢失
+            setCache('posterUrl', url);
         } catch (err) {
             console.error('生成海报失败:', err);
             setError(err.message);
         } finally {
             setIsGenerating(false);
         }
-    }, [data, duration, highlights]);
+    }, [data, duration, highlights, setCache]);
 
-    // 首次加载自动生成
+    // 监听重新生成触发器
     useEffect(() => {
-        if (data?.destination && !posterUrl && !isGenerating) {
+        if (posterTrigger > prevTriggerRef.current) {
+            // trigger 增加了，重新生成海报
             generatePoster();
         }
-    }, [data?.destination]);
+        prevTriggerRef.current = posterTrigger;
+    }, [posterTrigger, generatePoster]);
 
     // 下载海报
     const handleDownload = () => {
@@ -144,14 +157,7 @@ export function PosterView({ data }) {
         link.click();
     };
 
-    // 清理 blob URL
-    useEffect(() => {
-        return () => {
-            if (posterUrl) {
-                URL.revokeObjectURL(posterUrl);
-            }
-        };
-    }, [posterUrl]);
+    // 注意：不在组件卸载时清理 blob URL，因为需要保留在缓存中供下次使用
 
     return (
         <div className="flex flex-col gap-4">
@@ -187,6 +193,11 @@ export function PosterView({ data }) {
                         src={posterUrl}
                         alt="旅行海报"
                         className="w-full h-full object-contain"
+                        onError={() => {
+                            // blob URL 失效时清除缓存，显示初始状态
+                            setPosterUrl(null);
+                            setCache('posterUrl', null);
+                        }}
                     />
                 )}
 

@@ -156,6 +156,12 @@ export const useTravelStore = create(
           budget: null, // 同时清除侧边栏预算
         }),
 
+        // 海报重新生成触发器
+        posterTrigger: 0,
+        triggerPosterRegenerate: () => set((state) => ({
+          posterTrigger: state.posterTrigger + 1,
+        })),
+
         // ============================================================
         // UI 状态
         // ============================================================

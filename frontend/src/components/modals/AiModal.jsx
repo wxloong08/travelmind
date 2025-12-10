@@ -57,7 +57,7 @@ const modalConfig = {
 };
 
 export function AiModal() {
-  const { modal, closeModal } = useTravelStore();
+  const { modal, closeModal, triggerPosterRegenerate } = useTravelStore();
   const { regenerate } = useAiFeature();
 
   const { isOpen, type, title, content, isLoading, context } = modal;
@@ -66,6 +66,16 @@ export function AiModal() {
 
   const config = modalConfig[type] || { icon: Sparkles, color: 'blue' };
   const Icon = config.icon;
+
+  // 处理重新生成
+  const handleRegenerate = () => {
+    if (type === 'poster') {
+      // 海报使用专门的触发器
+      triggerPosterRegenerate();
+    } else {
+      regenerate(type, context);
+    }
+  };
 
   // 渲染内容
   const renderContent = () => {
@@ -134,7 +144,7 @@ export function AiModal() {
           <div className="flex items-center gap-2 flex-shrink-0">
             {!isLoading && (
               <button
-                onClick={() => regenerate(type, context)}
+                onClick={handleRegenerate}
                 title="重新生成"
                 className="p-1.5 text-gray-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors flex items-center gap-1 text-xs"
               >

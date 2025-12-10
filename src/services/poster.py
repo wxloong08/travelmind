@@ -119,11 +119,11 @@ class PosterService:
             image_source=image_source
         )
         
-        # 使用 Playwright 截图（2x 分辨率提高清晰度）
+        # 使用 Playwright 截图（device_scale_factor=4 约 300 DPI，输出 2400x3200）
         browser = await self._get_browser()
         page = await browser.new_page(
-            viewport={'width': 1200, 'height': 1600},
-            device_scale_factor=2
+            viewport={'width': 600, 'height': 800},
+            device_scale_factor=4
         )
         
         try:
