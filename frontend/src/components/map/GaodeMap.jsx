@@ -53,25 +53,54 @@ export function GaodeMap() {
       return;
     }
 
+    // 防止重复初始化（React StrictMode 会触发两次）
+    if (mapInstanceRef.current) {
+      console.log('[GaodeMap] Map already initialized, skipping');
+      setIsLoading(false);
+      setMapReady(true);
+      return;
+    }
+
     let isMounted = true;
 
     const initMap = async () => {
       try {
-        // 设置安全密钥
+        console.log('[GaodeMap] Starting map initialization...');
+        console.log('[GaodeMap] AMAP_KEY:', AMAP_KEY ? '已配置' : '未配置');
+        console.log('[GaodeMap] AMAP_SECRET:', AMAP_SECRET ? '已配置' : '未配置');
+
+        // 设置安全密钥 - 必须在加载之前设置
         if (AMAP_SECRET) {
           window._AMapSecurityConfig = {
             securityJsCode: AMAP_SECRET,
           };
+          console.log('[GaodeMap] Security config set');
         }
 
-        // 加载高德地图
-        const AMap = await AMapLoader.load({
+        console.log('[GaodeMap] Loading AMap SDK...');
+
+        // 加载高德地图 - 添加超时处理
+        const loadPromise = AMapLoader.load({
           key: AMAP_KEY,
           version: '2.0',
           plugins: ['AMap.Scale', 'AMap.ToolBar', 'AMap.Geocoder'],
         });
 
-        if (!isMounted || !mapContainerRef.current) return;
+        // 10秒超时
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('地图加载超时，请检查网络连接')), 10000)
+        );
+
+        const AMap = await Promise.race([loadPromise, timeoutPromise]);
+
+        console.log('[GaodeMap] AMap SDK loaded successfully');
+
+        if (!isMounted || !mapContainerRef.current) {
+          console.log('[GaodeMap] Component unmounted or container missing');
+          return;
+        }
+
+        console.log('[GaodeMap] Creating map instance...');
 
         // 创建地图实例
         const map = new AMap.Map(mapContainerRef.current, {
@@ -87,6 +116,7 @@ export function GaodeMap() {
         mapInstanceRef.current = map;
         setMapReady(true);
         setIsLoading(false);
+        console.log('[GaodeMap] Map initialized successfully');
 
         // 如果有目的地，进行地理编码
         if (destination && destination !== '未知目的地') {
@@ -95,25 +125,35 @@ export function GaodeMap() {
             if (status === 'complete' && result.geocodes.length) {
               const { lng, lat } = result.geocodes[0].location;
               map.setCenter([lng, lat]);
+              console.log('[GaodeMap] Centered on:', destination, [lng, lat]);
             }
           });
         }
       } catch (e) {
-        console.error('Map initialization failed:', e);
+        console.error('[GaodeMap] Map initialization failed:', e);
         if (isMounted) {
-          setError('地图加载失败，请刷新重试');
+          setError(e.message || '地图加载失败，请刷新重试');
           setIsLoading(false);
         }
       }
     };
 
-    initMap();
+    // 延迟初始化，等待 React StrictMode 双挂载完成
+    const timer = setTimeout(() => {
+      if (isMounted && mapContainerRef.current && !mapInstanceRef.current) {
+        initMap();
+      } else {
+        console.log('[GaodeMap] Skipped init - isMounted:', isMounted, 'container:', !!mapContainerRef.current, 'mapInstance:', !!mapInstanceRef.current);
+      }
+    }, 100);
 
     return () => {
       isMounted = false;
+      clearTimeout(timer);
       // 清理地图实例
       if (mapInstanceRef.current) {
         mapInstanceRef.current.destroy();
+        mapInstanceRef.current = null;
       }
     };
   }, []);
@@ -239,31 +279,6 @@ export function GaodeMap() {
     }
   }, [itinerary, mapReady, openDetailModal]);
 
-  // 加载状态
-  if (isLoading) {
-    return (
-      <div className="h-full min-h-[400px] bg-gray-800/50 rounded-3xl border border-white/10 flex items-center justify-center">
-        <div className="text-center">
-          <Loader2 size={48} className="mx-auto text-blue-500 animate-spin mb-4" />
-          <p className="text-gray-400">地图加载中...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // 错误状态
-  if (error) {
-    return (
-      <div className="h-full min-h-[400px] bg-gray-800/50 rounded-3xl border border-white/10 flex items-center justify-center">
-        <div className="text-center p-6">
-          <MapPin size={48} className="mx-auto text-red-500 mb-4" />
-          <h3 className="text-xl font-bold text-white mb-2">地图加载失败</h3>
-          <p className="text-gray-400 text-sm">{error}</p>
-        </div>
-      </div>
-    );
-  }
-
   // 无行程数据
   const hasActivitiesWithLocation = itinerary.some((day) =>
     day.activities?.some((act) => act.location?.lat && act.location?.lng)
@@ -271,11 +286,32 @@ export function GaodeMap() {
 
   return (
     <div className="h-full min-h-[400px] relative">
-      {/* 地图容器 */}
+      {/* 地图容器 - 始终渲染以确保 ref 可用 */}
       <div
         ref={mapContainerRef}
         className="w-full h-full min-h-[400px] rounded-3xl overflow-hidden"
       />
+
+      {/* 加载状态覆盖层 */}
+      {isLoading && (
+        <div className="absolute inset-0 bg-gray-800/90 rounded-3xl flex items-center justify-center">
+          <div className="text-center">
+            <Loader2 size={48} className="mx-auto text-blue-500 animate-spin mb-4" />
+            <p className="text-gray-400">地图加载中...</p>
+          </div>
+        </div>
+      )}
+
+      {/* 错误状态覆盖层 */}
+      {error && !isLoading && (
+        <div className="absolute inset-0 bg-gray-800/90 rounded-3xl flex items-center justify-center">
+          <div className="text-center p-6">
+            <MapPin size={48} className="mx-auto text-red-500 mb-4" />
+            <h3 className="text-xl font-bold text-white mb-2">地图加载失败</h3>
+            <p className="text-gray-400 text-sm">{error}</p>
+          </div>
+        </div>
+      )}
 
       {/* 无坐标数据提示 */}
       {!hasActivitiesWithLocation && mapReady && (
@@ -307,10 +343,10 @@ export function GaodeMap() {
                     {type === 'sight'
                       ? '景点'
                       : type === 'food'
-                      ? '美食'
-                      : type === 'hotel'
-                      ? '酒店'
-                      : '交通'}
+                        ? '美食'
+                        : type === 'hotel'
+                          ? '酒店'
+                          : '交通'}
                   </span>
                 </div>
               );
