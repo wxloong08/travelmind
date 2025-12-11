@@ -48,10 +48,13 @@ export function useAiFeature() {
     }
 
     try {
+      // 使用实际行程天数（包含抵达日）而不是 tripDays
+      const actualDays = itinerary?.length || tripDays || 3;
+
       const result = await assistantsApi.getBudget(
         destination,
         getContext(),
-        tripDays,
+        actualDays,
         `${weather.temp}, ${weather.condition}`
       );
       setCache('budget', result);
@@ -61,7 +64,7 @@ export function useAiFeature() {
       console.error('Budget estimation failed:', error);
       setModalContent({ error: '预算估算失败，请重试' });
     }
-  }, [destination, weather, tripDays, cache.budget, getContext]);
+  }, [destination, weather, tripDays, itinerary, cache.budget, getContext]);
 
   /**
    * 行李清单

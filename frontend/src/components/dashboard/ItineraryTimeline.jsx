@@ -236,10 +236,11 @@ export function ItineraryTimeline() {
                     const currentHotel = day.accommodation?.name;
                     const nextHotel = nextDay?.accommodation?.name;
                     const isLastDay = dayIdx >= itinerary.length - 1;
-                    const isSecondLastDay = dayIdx === itinerary.length - 2;
+                    const isDepartureDayBefore = nextDay?.day_type === 'departure' || nextDay?.accommodation === null;
+                    const isArrivalDay = day.day === 0 || day.day_type === 'arrival';
 
-                    // 最后一天和倒数第二天不显示
-                    if (isLastDay || isSecondLastDay) return null;
+                    // 最后一天（返程日前一天或返程日当天）不显示
+                    if (isLastDay || isDepartureDayBefore) return null;
 
                     // 检查是否需要换酒店
                     const willChangeHotel = currentHotel && nextHotel &&
@@ -267,12 +268,14 @@ export function ItineraryTimeline() {
                     const nextDay = itinerary[dayIdx + 1];
                     const currentHotel = day.accommodation?.name;
                     const nextHotel = nextDay?.accommodation?.name;
+                    const isDepartureDayBefore = nextDay?.day_type === 'departure' || nextDay?.accommodation === null;
                     const willChangeHotel = currentHotel && nextHotel &&
                       currentHotel !== nextHotel &&
                       !currentHotel.includes(nextHotel) &&
                       !nextHotel.includes(currentHotel);
 
-                    if (willChangeHotel && dayIdx < itinerary.length - 2) {
+                    // 只要换酒店且不是返程前一天都显示行李提示
+                    if (willChangeHotel && !isDepartureDayBefore) {
                       return (
                         <div className="mt-2 p-2 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
                           <p className="text-xs text-yellow-200/80">
