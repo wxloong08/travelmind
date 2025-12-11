@@ -40,3 +40,6 @@ Thumbs.db
 *.bak
 *.tmp
 .cache/
+
+# Local fix documentation (not for remote)
+fix_v2/

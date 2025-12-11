@@ -69,6 +69,76 @@ INTENT_CLASSIFICATION_PROMPT = """分析用户消息，判断任务类型并提�
 
 
 # ============================================================
+# 行程时长解析
+# ============================================================
+
+def parse_trip_duration(user_input: str) -> dict:
+    """
+    解析用户输入的行程时长
+    
+    支持格式：
+    - "4天3晚" → 4天游玩 + 1天抵达 = 5天行程，4晚住宿
+    - "3天" → 3天游玩 + 1天抵达 = 4天行程，3晚住宿
+    - "周末游" → 2天游玩，1晚住宿（当天出发）
+    
+    Returns:
+        {
+            "user_days": 4,         # 用户说的天数
+            "user_nights": 3,       # 用户说的晚数
+            "actual_days": 5,       # 实际行程天数（含抵达日）
+            "actual_nights": 4,     # 实际住宿晚数
+            "needs_arrival_day": True
+        }
+    """
+    user_input = user_input.strip()
+    
+    # 匹配 "X天Y晚" 格式
+    match = re.search(r'(\d+)\s*天\s*(\d+)\s*晚', user_input)
+    if match:
+        days = int(match.group(1))
+        nights = int(match.group(2))
+        return {
+            "user_days": days,
+            "user_nights": nights,
+            "actual_days": days + 1,      # +1 抵达日
+            "actual_nights": nights + 1,  # +1 抵达日住宿
+            "needs_arrival_day": True,
+        }
+    
+    # 匹配 "X天" 格式
+    match = re.search(r'(\d+)\s*天', user_input)
+    if match:
+        days = int(match.group(1))
+        nights = days - 1
+        return {
+            "user_days": days,
+            "user_nights": nights,
+            "actual_days": days + 1,
+            "actual_nights": days,  # days - 1 + 1 = days
+            "needs_arrival_day": True,
+        }
+    
+    # 匹配 "周末" 格式
+    if '周末' in user_input:
+        return {
+            "user_days": 2,
+            "user_nights": 1,
+            "actual_days": 2,         # 周末不加抵达日（当天早上出发）
+            "actual_nights": 1,
+            "needs_arrival_day": False,
+        }
+    
+    # 默认 3 天 2 晚
+    return {
+        "user_days": 3,
+        "user_nights": 2,
+        "actual_days": 4,
+        "actual_nights": 3,
+        "needs_arrival_day": True,
+    }
+
+
+# ============================================================
 # 工具函数
 # ============================================================
 
@@ -548,6 +618,21 @@ async def planning_node(state: AgentState) -> dict[str, Any]:
     user_message = state.get("messages", [])[-1].content if state.get("messages") else ""
     budget_level, min_price, max_price = get_budget_level(user_message, travel_style)
     logger.info("Budget level determined", level=budget_level, min=min_price, max=max_price)
+    
+    # ========== 解析行程时长（抵达日规则）==========
+    trip_duration = parse_trip_duration(user_message)
+    user_days = trip_duration["user_days"]
+    user_nights = trip_duration["user_nights"]
+    actual_days = trip_duration["actual_days"]
+    actual_nights = trip_duration["actual_nights"]
+    needs_arrival_day = trip_duration["needs_arrival_day"]
+    
+    logger.info(
+        "Trip duration parsed",
+        user_request=f"{user_days}天{user_nights}晚",
+        actual=f"{actual_days}天{actual_nights}晚",
+        needs_arrival_day=needs_arrival_day
+    )
 
     # ========== 从攻略中提取住宿推荐 ==========
     guide_hotels = []
@@ -686,16 +771,37 @@ async def planning_node(state: AgentState) -> dict[str, Any]:
     ]
     pois_json = json.dumps(pois_for_prompt, ensure_ascii=False, indent=2)
 
-    # ========== 构建规划提示词 ==========
+    # ========== 构建规划提示词（含抵达日规则）==========
     planning_prompt = f"""你是一个专业的旅行规划师。请基于【真实 UGC 攻略】为用户制定行程。
 
 ⚠️ 核心原则：你的规划必须参考下面的真实攻略内容，不要凭空想象！
 
 ## 📋 用户需求
 - **目的地**: {destination}
-- **天数**: {days}天{days-1}晚
+- **用户表述**: {user_days}天{user_nights}晚
+- **实际规划**: {actual_days}天{actual_nights}晚（含抵达日）
 - **旅行风格**: {travel_style}
 {must_visit_text}
+
+## 🛬 抵达日规则（极其重要！！！）
+
+**用户说"{user_days}天{user_nights}晚"，但如果 Day 1 早上就有行程，需要前一天到达！**
+
+实际行程应该是：
+- **Day 0 (抵达日)**: 下午抵达{destination}，入住酒店，晚上简单逛逛
+- **Day 1 - Day {user_days}**: 正式游玩
+- **最后一天**: 返程，无住宿
+
+实际住宿：{actual_nights} 晚（比用户说的多 1 晚，因为抵达日也要住）
+
+### 抵达日（Day 0）必须包含：
+1. 14:00-16:00 抵达目的地
+2. 16:00-17:00 入住酒店
+3. 18:00-21:00 酒店周边轻度探索/晚餐
+
+### 抵达日住宿位置选择原则：
+1. **主题公园行程**：抵达日住在公园附近（如环球影城→住通州区）
+2. **市区景点行程**：抵达日住在交通枢纽/市中心附近
 
 ## 🌤️ 天气信息
 {json.dumps(weather_info, ensure_ascii=False, indent=2) if weather_info else "暂无"}
@@ -710,12 +816,14 @@ async def planning_node(state: AgentState) -> dict[str, Any]:
 {guide_context if guide_context else "暂无攻略信息，请根据常识规划"}
 
 ## ⏰ 时间安排规则（必须遵守！）
-1. **主题公园（环球影城、迪士尼等）**：必须安排全天（09:00-21:00），当天不安排其他主要景点
-2. **故宫/颐和园等大型景点**：至少安排半天（4小时）
-3. **日落/夕阳观景**：只能在17:00-19:00
-4. **夜景/灯光秀**：只能在19:00-22:00
-5. **同一天景点**：应在同一区域，避免来回折腾
-6. **每天2-3个主要景点**为宜，不要走马观花
+1. **抵达日（Day 0）**：轻松安排，主要是入住和周边简单逛逛
+2. **主题公园（环球影城、迪士尼等）**：必须安排全天（09:00-21:00），当天不安排其他主要景点
+3. **故宫/颐和园等大型景点**：至少安排半天（4小时）
+4. **日落/夕阳观景**：只能在17:00-19:00
+5. **夜景/灯光秀**：只能在19:00-22:00
+6. **同一天景点**：应在同一区域，避免来回折腾
+7. **每天2-3个主要景点**为宜，不要走马观花
+8. **返程日**：根据航班时间灵活安排，可去机场附近购物
 
 ## 📍 可参考的景点 POI
 {pois_json}
@@ -725,10 +833,48 @@ async def planning_node(state: AgentState) -> dict[str, Any]:
 请返回纯 JSON 格式（不要 markdown 代码块）：
 {{
     "chat_response": "一段友好的回复（200-300字），包含：1. 行程亮点 2. 为什么这样安排 3. 特别提醒",
+    "trip_summary": {{
+        "user_request": "{user_days}天{user_nights}晚",
+        "actual_days": {actual_days},
+        "actual_nights": {actual_nights},
+        "includes_arrival_day": true
+    }},
     "itinerary": [
         {{
+            "day": 0,
+            "day_type": "arrival",
+            "title": "抵达{destination} & 入住休整",
+            "activities": [
+                {{
+                    "time": "14:00",
+                    "title": "抵达{destination}",
+                    "type": "transport",
+                    "desc": "根据航班/高铁时间抵达"
+                }},
+                {{
+                    "time": "16:00",
+                    "title": "入住酒店",
+                    "type": "hotel",
+                    "desc": "办理入住，稍作休息"
+                }},
+                {{
+                    "time": "18:00",
+                    "title": "酒店周边晚餐",
+                    "type": "food",
+                    "desc": "品尝当地美食"
+                }}
+            ],
+            "accommodation": {{
+                "name": "XXX酒店（靠近明日行程起点）",
+                "reason": "📍 靠近明日行程起点",
+                "price_range": "¥XXX-XXX",
+                "stay_same_tomorrow": true
+            }}
+        }},
+        {{
             "day": 1,
-            "title": "主题标题（如：故宫中轴线深度游）",
+            "day_type": "play",
+            "title": "正式游玩第一天（如：故宫中轴线深度游）",
             "activities": [
                 {{
                     "time": "09:00",
@@ -736,7 +882,7 @@ async def planning_node(state: AgentState) -> dict[str, Any]:
                     "type": "attraction|food|hotel|transport",
                     "desc": "简短描述（30-50字），包含实用信息如门票、交通方式",
                     "transport_from_prev": {{
-                        "from": "上一个地点名称（第一个活动填'酒店/车站'）",
+                        "from": "酒店",
                         "method": "地铁/公交/步行/打车",
                         "duration": "约30分钟",
                         "detail": "具体路线，如'地铁1号线→换乘2号线'"
@@ -745,11 +891,32 @@ async def planning_node(state: AgentState) -> dict[str, Any]:
             ],
             "accommodation": {{
                 "name": "推荐入住的酒店名称",
-                "reason": "为什么推荐这家（重点说明：方便明天前往XX景点）",
-                "check_in_note": "入住提示，如'建议下午游玩结束后入住'",
+                "reason": "方便明天前往XX景点",
+                "check_in_note": "入住提示",
                 "stay_same_tomorrow": true,
-                "next_day_first_spot": "第二天第一个景点名称（用于验证推荐理由）"
+                "next_day_first_spot": "第二天第一个景点"
             }}
+        }},
+        ... 中间天数按此格式继续 ...,
+        {{
+            "day": {user_days},
+            "day_type": "departure",
+            "title": "返程 & 再见{destination}",
+            "activities": [
+                {{
+                    "time": "09:00",
+                    "title": "酒店周边最后逛逛",
+                    "type": "attraction",
+                    "desc": "最后的自由时间，可以补充购物或打卡遗漏景点"
+                }},
+                {{
+                    "time": "12:00",
+                    "title": "前往机场/车站",
+                    "type": "transport",
+                    "desc": "建议提前2-3小时抵达，预留安检时间"
+                }}
+            ],
+            "accommodation": null
         }}
     ],
     "accommodation_strategy": {{

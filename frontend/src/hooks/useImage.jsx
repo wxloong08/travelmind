@@ -30,9 +30,41 @@ const DEFAULT_IMAGES = {
     hotel: 'https://images.unsplash.com/photo-1566073771259-6a8506099945?w=800&h=600&fit=crop&q=80',
 };
 
+// ============================================================
+// 全局图片缓存 - 避免重复请求后端
+// ============================================================
+const imageCache = new Map();
 
 /**
- * 图片获取 Hook
+ * 生成缓存键
+ */
+const getCacheKey = (type, name, city = '') => `${type}:${name}:${city}`;
+
+/**
+ * 从缓存获取图片
+ */
+const getCachedImage = (type, name, city = '') => {
+    const key = getCacheKey(type, name, city);
+    return imageCache.get(key);
+};
+
+/**
+ * 设置缓存
+ */
+const setCachedImage = (type, name, city, data) => {
+    const key = getCacheKey(type, name, city);
+    imageCache.set(key, data);
+
+    // 限制缓存大小（最多 200 条）
+    if (imageCache.size > 200) {
+        const firstKey = imageCache.keys().next().value;
+        imageCache.delete(firstKey);
+    }
+};
+
+
+/**
+ * 图片获取 Hook（带缓存）
  * 
  * @param {'city' | 'attraction' | 'poster' | 'hotel'} type - 图片类型
  * @param {string} name - 城市名或景点名
@@ -47,6 +79,15 @@ export function useImage(type, name, city = '') {
 
     const fetchImage = useCallback(async () => {
         if (!name) {
+            setLoading(false);
+            return;
+        }
+
+        // ===== 优先检查缓存 =====
+        const cached = getCachedImage(type, name, city);
+        if (cached) {
+            setImageUrl(cached.url);
+            setSource(cached.source);
             setLoading(false);
             return;
         }
@@ -69,8 +110,10 @@ export function useImage(type, name, city = '') {
                     break;
                 case 'hotel':
                     // 酒店暂时用默认图
-                    setImageUrl(DEFAULT_IMAGES.hotel);
-                    setSource('default');
+                    const hotelData = { url: DEFAULT_IMAGES.hotel, source: 'default' };
+                    setCachedImage(type, name, city, hotelData);
+                    setImageUrl(hotelData.url);
+                    setSource(hotelData.source);
                     setLoading(false);
                     return;
                 default:
@@ -81,6 +124,8 @@ export function useImage(type, name, city = '') {
 
             if (response.ok) {
                 const data = await response.json();
+                // 缓存结果
+                setCachedImage(type, name, city, data);
                 setImageUrl(data.url);
                 setSource(data.source);
             } else {
@@ -89,9 +134,11 @@ export function useImage(type, name, city = '') {
         } catch (err) {
             console.error(`Failed to fetch ${type} image for ${name}:`, err);
             setError(err);
-            // 使用默认图
-            setImageUrl(DEFAULT_IMAGES[type] || DEFAULT_IMAGES.city);
-            setSource('default');
+            // 使用默认图并缓存
+            const fallbackData = { url: DEFAULT_IMAGES[type] || DEFAULT_IMAGES.city, source: 'default' };
+            setCachedImage(type, name, city, fallbackData);
+            setImageUrl(fallbackData.url);
+            setSource(fallbackData.source);
         } finally {
             setLoading(false);
         }

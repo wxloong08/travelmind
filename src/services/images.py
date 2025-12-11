@@ -254,6 +254,8 @@ PRESET_ATTRACTION_IMAGES = {
     "圆明园": "https://images.unsplash.com/photo-1660531076440-f92c01c325d0?w=1920&h=1280&fit=crop&q=90",
     "北京环球影城": "https://images.pexels.com/photos/34042832/pexels-photo-34042832.jpeg?auto=compress&cs=tinysrgb&w=1920&h=1280&fit=crop",
     "环球影城": "https://images.pexels.com/photos/34042832/pexels-photo-34042832.jpeg?auto=compress&cs=tinysrgb&w=1920&h=1280&fit=crop",
+    "北京环球度假区": "https://images.pexels.com/photos/34042832/pexels-photo-34042832.jpeg?auto=compress&cs=tinysrgb&w=1920&h=1280&fit=crop",
+    "环球度假区": "https://images.pexels.com/photos/34042832/pexels-photo-34042832.jpeg?auto=compress&cs=tinysrgb&w=1920&h=1280&fit=crop",
     "景山公园": "https://images.unsplash.com/photo-1628001204260-c5df3cc58f02?w=1920&h=1280&fit=crop&q=90",
     "南锣鼓巷": "https://images.unsplash.com/photo-1683820251709-08259527a456?w=1920&h=1280&fit=crop&q=90",
     "鸟巢": "https://images.unsplash.com/photo-1708962817931-cfc91e2830a3?w=1920&h=1280&fit=crop&q=90",
@@ -306,7 +308,80 @@ DEFAULT_IMAGES = {
 
 
 # ============================================================
-# 4. 图片服务类
+# 4. 中英文关键词映射 - 优化 Unsplash 搜索
+# ============================================================
+
+KEYWORD_MAPPING = {
+    # 城市映射
+    "北京": "Beijing China",
+    "上海": "Shanghai China",
+    "杭州": "Hangzhou West Lake China",
+    "成都": "Chengdu Sichuan China",
+    "西安": "Xian China ancient",
+    "重庆": "Chongqing China",
+    "广州": "Guangzhou Canton Tower",
+    "深圳": "Shenzhen China modern city",
+    "厦门": "Xiamen Gulangyu China",
+    "青岛": "Qingdao China coast",
+    "大理": "Dali Yunnan China",
+    "丽江": "Lijiang ancient town China",
+    "桂林": "Guilin Li River karst mountains",
+    "黄山": "Huangshan Yellow Mountain China",
+    "张家界": "Zhangjiajie Avatar mountains China",
+    "拉萨": "Lhasa Potala Palace Tibet",
+    "南京": "Nanjing China",
+    "苏州": "Suzhou garden China",
+    "香港": "Hong Kong Victoria Harbour",
+    
+    # 景点映射
+    "故宫": "Forbidden City Beijing palace",
+    "故宫博物院": "Forbidden City Beijing",
+    "天安门": "Tiananmen Square Beijing",
+    "天安门广场": "Tiananmen Square Beijing",
+    "长城": "Great Wall of China",
+    "八达岭长城": "Badaling Great Wall Beijing",
+    "颐和园": "Summer Palace Beijing garden",
+    "天坛": "Temple of Heaven Beijing",
+    "圆明园": "Old Summer Palace Yuan Ming Yuan",
+    "北京环球影城": "Universal Studios theme park",
+    "环球影城": "Universal Studios theme park",
+    "北京环球度假区": "Universal Studios Beijing resort",
+    "环球度假区": "Universal Studios resort",
+    "景山公园": "Jingshan Park Beijing",
+    "南锣鼓巷": "Nanluoguxiang Beijing hutong",
+    "鸟巢": "Bird's Nest stadium Beijing",
+    "外滩": "The Bund Shanghai night view",
+    "东方明珠": "Oriental Pearl Tower Shanghai",
+    "陆家嘴": "Lujiazui Shanghai skyline",
+    "迪士尼": "Disneyland castle theme park",
+    "上海迪士尼": "Shanghai Disneyland",
+    "豫园": "Yuyuan Garden Shanghai",
+    "西湖": "West Lake Hangzhou China",
+    "雷峰塔": "Leifeng Pagoda Hangzhou",
+    "灵隐寺": "Lingyin Temple Hangzhou",
+    "兵马俑": "Terracotta Army Xian China",
+    "秦始皇兵马俑": "Terracotta Warriors Xian",
+    "大雁塔": "Giant Wild Goose Pagoda Xian",
+    "西安城墙": "Xian Ancient City Wall",
+    "宽窄巷子": "Kuanzhai Alley Chengdu",
+    "洪崖洞": "Hongyadong Chongqing night",
+    "布达拉宫": "Potala Palace Lhasa Tibet",
+    "洱海": "Erhai Lake Dali Yunnan",
+    "玉龙雪山": "Jade Dragon Snow Mountain Lijiang",
+    "漓江": "Li River Guilin scenic",
+    
+    # 通用类型
+    "公园": "park scenic green",
+    "博物馆": "museum architecture",
+    "寺庙": "temple Chinese architecture",
+    "古镇": "ancient town China traditional",
+    "景区": "scenic area tourist attraction",
+    "夜景": "night view cityscape",
+}
+
+
+# ============================================================
+# 5. 图片服务类
 # ============================================================
 
 ImageType = Literal["landmark", "poster_bg", "thumbnail", "attraction", "hotel"]
@@ -399,8 +474,11 @@ class ImageService:
         """
         logger.info("Getting attraction image", attraction=attraction_name, city=city)
         
-        # 注意：跳过预设景点图片，因为很多 Unsplash URL 已失效
-        # 直接使用 API 搜索确保图片与景点相关
+        # ===== 优先级 1: 预设景点图片 =====
+        preset = self._get_preset_attraction_image(attraction_name)
+        if preset:
+            logger.info("Using preset attraction image", attraction=attraction_name)
+            return preset
         
         # ===== 优先级 2: Google Custom Search API =====
         if self.google_api_key and self.google_search_engine_id:
@@ -416,10 +494,11 @@ class ImageService:
         
         # ===== 优先级 3: Unsplash API 搜索 =====
         if self.unsplash_access_key:
-            query = f"{attraction_name} {city}".strip() if city else attraction_name
-            result = await self._search_unsplash_image(query)
+            # 使用优化后的英文关键词搜索
+            optimized_query = self._optimize_search_query(attraction_name, city)
+            result = await self._search_unsplash_image(optimized_query)
             if result:
-                logger.info("Using Unsplash attraction image", attraction=attraction_name)
+                logger.info("Using Unsplash attraction image", attraction=attraction_name, query=optimized_query)
                 return {
                     "url": result,
                     "source": "unsplash",
@@ -493,6 +572,41 @@ class ImageService:
                 }
         
         return None
+    
+    def _optimize_search_query(self, query: str, city: str = "") -> str:
+        """
+        优化搜索查询 - 将中文关键词转换为英文
+        
+        如果中文关键词在 KEYWORD_MAPPING 中有映射，使用英文关键词搜索
+        这对 Unsplash 等主要使用英文的图库搜索效果更好
+        """
+        optimized_parts = []
+        
+        # 尝试从映射表中查找精确匹配
+        if query in KEYWORD_MAPPING:
+            optimized_parts.append(KEYWORD_MAPPING[query])
+        else:
+            # 尝试部分匹配
+            matched = False
+            for key, english in KEYWORD_MAPPING.items():
+                if key in query:
+                    optimized_parts.append(english)
+                    matched = True
+                    break
+            
+            # 如果没有匹配，保留原始查询但添加通用英文词
+            if not matched:
+                optimized_parts.append(f"{query} China travel landmark")
+        
+        # 添加城市英文名（如果有映射）
+        if city and city in KEYWORD_MAPPING:
+            city_english = KEYWORD_MAPPING[city].split()[0]  # 只取第一个词（城市名）
+            if city_english not in " ".join(optimized_parts):
+                optimized_parts.append(city_english)
+        elif city:
+            optimized_parts.append(city)
+        
+        return " ".join(optimized_parts)
     
     async def _search_google_image(self, query: str) -> str | None:
         """

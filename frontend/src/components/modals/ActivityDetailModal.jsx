@@ -4,7 +4,7 @@
  * 显示景点/酒店详情，支持讲故事、问路卡、评价等功能
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   MapPin,
@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import { assistantsApi } from '../../api/client';
 import useTravelStore from '../../store/useTravelStore';
+import { useImage } from '../../hooks/useImage';
 
 // 酒店设施图标映射
 const facilityIcons = {
@@ -40,12 +41,55 @@ const facilityIcons = {
   parking: Car,
 };
 
-// 获取景点图片 (更稳定的fallback)
-const getAttractionImage = (title, city, type = 'attraction') => {
-  // 使用 Picsum 作为稳定的图片源 (基于标题生成唯一seed)
+// 最终 fallback 图片 (仅当后端 API 也失败时使用)
+const getFallbackImage = (title, city) => {
   const seed = encodeURIComponent(`${title}-${city}`);
   return `https://picsum.photos/seed/${seed}/800/400`;
 };
+
+/**
+ * 活动封面图组件 - 使用后端图片服务获取预设图片
+ * 
+ * 优先级：photos[] → image → imageUrl → 后端预设图片 → Picsum fallback
+ */
+function ActivityCoverImage({ activity, destination }) {
+  const [imgError, setImgError] = useState(false);
+
+  // 使用后端图片服务获取预设景点图片
+  const { imageUrl: presetImageUrl, loading, source } = useImage(
+    activity.type === 'hotel' ? 'hotel' : 'attraction',
+    activity.title,
+    destination
+  );
+
+  // 确定最终要显示的图片 URL
+  // 优先级：activity 自带图片 → 后端预设图片 → picsum fallback
+  const finalImageUrl = React.useMemo(() => {
+    // 1. 优先使用 activity 中已有的图片
+    if (activity.photos?.[0]) return activity.photos[0];
+    if (activity.image) return activity.image;
+    if (activity.imageUrl) return activity.imageUrl;
+
+    // 2. 使用后端预设图片服务返回的图片
+    if (presetImageUrl && !imgError) return presetImageUrl;
+
+    // 3. 最终 fallback
+    return getFallbackImage(activity.title, destination);
+  }, [activity, presetImageUrl, imgError, destination]);
+
+  return (
+    <img
+      src={finalImageUrl}
+      className="w-full h-full object-cover"
+      alt={activity.title}
+      onError={(e) => {
+        setImgError(true);
+        // 如果当前 URL 失败，尝试 fallback
+        e.target.src = getFallbackImage(activity.title, destination);
+      }}
+    />
+  );
+}
 
 export function ActivityDetailModal() {
   const { destination, detailModal, closeDetailModal, updateDetailActivity } =
@@ -183,21 +227,7 @@ export function ActivityDetailModal() {
       <div className="bg-[#1a1d2d] border border-white/10 rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
         {/* 封面图 */}
         <div className="h-56 relative overflow-hidden group bg-gradient-to-br from-blue-900 to-purple-900">
-          <img
-            src={
-              // 优先使用 photos 数组（高德 API），其次使用 image，最后使用 Picsum
-              activity.photos?.[0] ||
-              activity.image ||
-              activity.imageUrl ||
-              getAttractionImage(activity.title, destination, activity.type)
-            }
-            className="w-full h-full object-cover"
-            alt={activity.title}
-            onError={(e) => {
-              // 图片加载失败时隐藏图片，显示渐变背景
-              e.target.style.display = 'none';
-            }}
-          />
+          <ActivityCoverImage activity={activity} destination={destination} />
           <div className="absolute inset-0 bg-gradient-to-t from-[#1a1d2d] via-transparent to-transparent" />
 
           {/* 酒店图片预览 */}
