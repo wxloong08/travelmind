@@ -73,7 +73,7 @@ async function* streamRequest(endpoint, body) {
           try {
             yield JSON.parse(data);
           } catch (e) {
-            console.warn('Failed to parse SSE data:', data);
+            // 忽略解析失败的数据
           }
         }
       }

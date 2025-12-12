@@ -9,46 +9,31 @@
 
 ## ✨ 功能特性
 
+### 核心功能
 - 🗺️ **智能旅游规划** - 根据偏好制定个性化旅游攻略
 - 🏨 **景点/酒店推荐** - 实时搜索目的地 POI 信息
 - 📅 **行程安排** - 合理规划每日行程，考虑距离与时间
 - 🌤️ **天气查询** - 获取目的地实时天气和预报
 - 🔍 **实时资讯** - 搜索最新旅游攻略和新闻
+- 💰 **预算仪表盘** - 基于行程数据的精确费用计算
+
+### 用户系统
+- 👤 **多用户等级** - 游客(1次/天)、免费用户(3次/天)、付费用户(20次/天)
+- 📱 **手机号登录** - 短信验证码登录（支持开发模式）
+- 🎫 **激活码系统** - 支持升级付费、增加次数
+- 🔐 **后台管理** - 用户管理、激活码管理、使用统计
+
+### 智能缓存
+- 📚 **RAG 知识库** - 博查搜索结果自动存入向量数据库
+- ⚡ **智能检索** - 相似查询优先使用本地缓存，节省 API 费用
 - 📊 **LLM 可观测性** - Langfuse 集成，追踪调用和成本
-
-## 🏗️ 技术架构
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                      FastAPI                            │
-│                   (REST API Layer)                      │
-├─────────────────────────────────────────────────────────┤
-│                     LangGraph                           │
-│              (Agent Workflow Engine)                    │
-│  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐   │
-│  │Understand│→│Research │→│Planning │→│ Respond │    │
-│  │  Intent │  │  Node   │  │  Node   │  │  Node   │    │
-│  └─────────┘  └─────────┘  └─────────┘  └─────────┘   │
-├─────────────────────────────────────────────────────────┤
-│                      Tools Layer                        │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐             │
-│  │ 高德地图  │  │ 博查搜索  │  │  Chroma  │             │
-│  │  POI API │  │ Web API  │  │ Vector DB│             │
-│  └──────────┘  └──────────┘  └──────────┘             │
-├─────────────────────────────────────────────────────────┤
-│                    通义千问 (Qwen)                       │
-│                      LLM Layer                          │
-├─────────────────────────────────────────────────────────┤
-│                     Langfuse                            │
-│                 (LLM Observability)                     │
-└─────────────────────────────────────────────────────────┘
-```
 
 ## 🚀 快速开始
 
 ### 前置要求
 
 - Docker & Docker Compose
+- Node.js 18+（仅前端开发需要）
 
 ### 1. 克隆项目
 
@@ -63,7 +48,7 @@ cd travelmind
 cp .env.example .env
 ```
 
-编辑 `.env` 文件，填写必需的 API Key：
+编辑 `.env` 文件：
 
 ```bash
 # 【必须】通义千问 API Key
@@ -74,44 +59,124 @@ DASHSCOPE_API_KEY=sk-your-api-key
 # 获取地址: https://lbs.amap.com/
 AMAP_API_KEY=your-amap-key
 
-# 【可选】博查搜索 API Key
+# 【推荐】博查搜索 API Key
 # 获取地址: https://open.bochaai.com/
 BOCHA_API_KEY=your-bocha-key
 ```
 
-### 3. 启动服务
+> 其他配置（数据库、JWT 等）使用 docker-compose.yml 中的默认值即可
+
+### 3. 启动后端服务
 
 ```bash
-docker-compose up -d
+# 构建并启动（首次约 5-10 分钟）
+docker-compose up -d --build
+
+# 运行数据库迁移
+docker-compose exec app alembic upgrade head
+
+# 查看日志
+docker-compose logs -f app
 ```
 
-首次启动需要等待 1-2 分钟，Langfuse 需要执行数据库迁移。
+### 4. 启动前端
 
-### 4. 配置 Langfuse（首次）
+```bash
+cd frontend
+npm install
+npm run dev
+```
 
-1. 访问 http://localhost:3000
-2. 注册账号（数据存储在本地，完全私有）
-3. 创建项目
-4. 进入 Settings → API Keys → 创建 API Key
-5. 更新 `.env` 文件：
-   ```bash
-   LANGFUSE_PUBLIC_KEY=pk-lf-xxx
-   LANGFUSE_SECRET_KEY=sk-lf-xxx
-   LANGFUSE_HOST=http://langfuse:3000
-   ```
-6. 重新创建容器以加载新配置：
-   ```bash
-   docker-compose up -d --force-recreate app
-   ```
+### 5. 创建管理员账号
 
-### 5. 访问服务
+```bash
+# 1. 先通过前端登录注册一个用户
+# 2. 升级为管理员
+docker-compose exec postgres psql -U travelmind -d travelmind -c \
+  "UPDATE users SET role='admin', daily_quota=999 WHERE phone='你的手机号';"
+```
+
+### 6. 访问服务
 
 | 服务 | 地址 |
 |------|------|
+| 前端应用 | http://localhost:5173 |
 | API 文档 (Swagger) | http://localhost:8000/docs |
-| API 文档 (ReDoc) | http://localhost:8000/redoc |
+| 后台管理 | http://localhost:8000/api/v1/admin/ |
 | 健康检查 | http://localhost:8000/api/v1/health |
-| Langfuse 监控 | http://localhost:3000 |
+
+## 👥 用户系统
+
+### 用户等级
+
+| 等级 | 每日次数 | 获取方式 |
+|-----|---------|---------|
+| 游客 | 1 次 | 自动（设备指纹） |
+| 免费用户 | 3 次 | 手机号注册 |
+| 付费用户 | 20 次 | 激活码升级 |
+| 管理员 | 无限制 | 数据库设置 |
+
+### 激活码
+
+```
+格式: TRVL-XXXX-XXXX-XXXX
+
+类型:
+- upgrade_paid: 升级为付费用户
+- add_quota: 增加额外次数
+```
+
+管理员可在后台 http://localhost:8000/api/v1/admin/ 生成激活码
+
+## 📚 RAG 知识库
+
+### 工作原理
+
+```
+用户搜索 → 查本地向量库 → 有3+结果? → 返回缓存（免费）
+                              ↓
+                            没有
+                              ↓
+                         调用博查 API（付费）
+                              ↓
+                         存入向量库
+                              ↓
+                         返回结果
+```
+
+### 查看 RAG 存储内容
+
+```bash
+# 进入容器
+docker-compose exec app bash
+
+# 启动 Python
+python
+
+# 查看向量库内容
+>>> from src.rag import get_vector_store
+>>> store = get_vector_store()
+>>> collection = store._get_collection()
+>>> print(f"文档数量: {collection.count()}")
+>>> 
+>>> # 查看文档列表
+>>> results = collection.get(include=["documents", "metadatas"])
+>>> for i, meta in enumerate(results["metadatas"][:5]):
+...     print(f"[{i}] {meta.get('title', '无标题')[:50]}")
+...     print(f"    目的地: {meta.get('destination', '-')}")
+>>> 
+>>> exit()
+```
+
+### RAG 数据位置
+
+```bash
+# 查看 Docker 卷
+docker volume inspect travelmind_travelmind_data
+
+# 查看容器内文件
+docker-compose exec app ls -la /app/data/chroma/
+```
 
 ## 🐳 Docker 命令
 
@@ -123,55 +188,49 @@ docker-compose up -d
 docker-compose up -d --build
 
 # 查看日志
-docker-compose logs -f
-
-# 只看 TravelMind 日志
 docker-compose logs -f app
 
-# 重启 TravelMind（不影响 Langfuse）
-docker-compose restart app
+# 运行数据库迁移
+docker-compose exec app alembic upgrade head
 
-# 停止所有服务
+# 进入容器
+docker-compose exec app bash
+docker-compose exec postgres psql -U travelmind -d travelmind
+
+# 停止服务
 docker-compose down
 
-# 停止并删除数据（包括 Langfuse 数据库）
+# 停止并删除数据（⚠️ 会丢失所有数据）
 docker-compose down -v
 ```
 
-## 📖 API 使用
+## 📖 API 文档
 
 详细 API 文档请参考 [docs/API.md](docs/API.md)
-
-### 智能对话
-
-```bash
-curl -X POST "http://localhost:8000/api/v1/chat" \
-  -H "Content-Type: application/json" \
-  -d '{"message": "帮我规划一个杭州三日游，预算3000元"}'
-```
 
 ### 流式对话
 
 ```bash
 curl -X POST "http://localhost:8000/api/v1/chat/stream" \
   -H "Content-Type: application/json" \
-  -d '{"message": "帮我规划一个杭州三日游"}'
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -d '{"message": "帮我规划一个北京三日亲子游", "session_id": "test"}'
 ```
 
-### POI 搜索
+### 获取配额信息
 
 ```bash
-curl -X POST "http://localhost:8000/api/v1/tools/poi/search" \
-  -H "Content-Type: application/json" \
-  -d '{"keywords": "西湖", "city": "杭州", "poi_type": "scenic"}'
+curl "http://localhost:8000/api/v1/auth/quota" \
+  -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
-### 天气查询
+### 使用激活码
 
 ```bash
-curl -X POST "http://localhost:8000/api/v1/tools/weather" \
+curl -X POST "http://localhost:8000/api/v1/auth/activate" \
   -H "Content-Type: application/json" \
-  -d '{"city": "杭州", "forecast": true}'
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -d '{"code": "TRVL-XXXX-XXXX-XXXX"}'
 ```
 
 ## 📁 项目结构
@@ -179,113 +238,47 @@ curl -X POST "http://localhost:8000/api/v1/tools/weather" \
 ```
 travelmind/
 ├── src/
-│   ├── api/              # FastAPI 路由和 Schema
-│   │   ├── routes.py     # API 端点定义
+│   ├── api/              # FastAPI 路由
+│   │   ├── routes/       # 拆分的路由模块
+│   │   │   ├── auth.py   # 认证相关
+│   │   │   ├── admin.py  # 后台管理
+│   │   │   └── trips.py  # 行程管理
 │   │   └── schemas.py    # Pydantic 数据模型
-│   ├── config/           # 配置管理
-│   │   └── settings.py   # Pydantic Settings
-│   ├── core/             # 核心模块
-│   │   └── observability.py  # Langfuse 集成
+│   ├── auth/             # 认证模块
+│   ├── db/               # 数据库模块
+│   │   ├── models/       # SQLAlchemy 模型
+│   │   └── repositories/ # 数据访问层
+│   ├── services/         # 业务服务
+│   │   ├── quota_service.py      # 配额管理
+│   │   ├── knowledge_service.py  # RAG 知识库
+│   │   └── trip_service.py       # 行程服务
 │   ├── graphs/           # LangGraph 工作流
-│   │   ├── state.py      # 状态定义
-│   │   ├── nodes.py      # 节点实现
-│   │   └── travel_graph.py   # 主工作流
-│   ├── llm/              # LLM Provider
-│   │   ├── base.py       # 抽象基类
-│   │   └── qwen.py       # 通义千问实现
 │   ├── rag/              # RAG 向量检索
-│   │   └── vector_store.py   # Chroma 实现
 │   ├── tools/            # Agent 工具
-│   │   ├── amap.py       # 高德地图 API
-│   │   ├── search.py     # 博查搜索 API
-│   │   └── definitions.py    # LangGraph 工具定义
 │   └── main.py           # FastAPI 入口
-├── tests/                # 测试文件
+├── frontend/             # React 前端
+├── alembic/              # 数据库迁移
 ├── docs/                 # 文档
-│   ├── API.md            # API 接口文档
-│   ├── ARCHITECTURE_COMPONENTS.md
-│   ├── SECURITY.md       # 安全部署指南
-│   └── adr/              # 架构决策记录
-├── docker-compose.yml    # Docker Compose 配置
-├── Dockerfile            # Docker 镜像定义
-├── pyproject.toml        # 项目配置
-├── Makefile              # 常用命令
+├── docker-compose.yml
+├── Dockerfile
 └── README.md
 ```
-
-## 🧪 本地开发
-
-如果不使用 Docker，可以本地运行：
-
-```bash
-# 安装依赖
-pip install -e ".[dev]"
-
-# 启动开发服务器
-make dev
-
-# 运行测试
-make test
-
-# 代码检查
-make lint
-
-# 代码格式化
-make format
-```
-
-## 📊 Langfuse 可观测性
-
-项目集成了 [Langfuse](https://langfuse.com/) 进行 LLM 调用追踪：
-
-- **自托管部署**：数据完全私有，无需注册 langfuse.com
-- **追踪内容**：模型调用、输入输出、Token 用量、耗时
-- **成本分析**：自动计算通义千问 API 调用成本
-
-### 版本兼容性
-
-| 自托管 Langfuse 版本 | SDK 版本要求 |
-|---------------------|-------------|
-| v2.x | `langfuse>=2.0.0,<3.0.0` |
-| v3.x | `langfuse>=3.0.0` |
-
-当前项目使用 Langfuse **v2.x** 自托管版本，SDK 自动限制为 v2。
-
-### 查看 Traces
-
-1. 访问 http://localhost:3000
-2. 进入项目 → Tracing → Traces
-3. 点击具体 Trace 查看详情
-4. 点击 "llm-generation" 查看输入输出
 
 ## 🔧 技术栈
 
 | 类别 | 技术选型 | 说明 |
 |------|---------|------|
-| AI 框架 | LangGraph | 基于图的 Agent 工作流引擎 |
-| LLM | 通义千问 (Qwen) | 阿里云百炼平台，中文优化 |
-| Web 框架 | FastAPI | 高性能异步 API 框架 |
-| 数据验证 | Pydantic v2 | 类型安全的数据模型 |
-| 向量数据库 | Chroma | 轻量级嵌入式向量库 |
-| 地图服务 | 高德地图 | POI 搜索、天气、路线规划 |
-| 搜索服务 | 博查搜索 | AI 优化的中文网页搜索 |
-| 可观测性 | Langfuse | LLM 调用追踪与成本分析 |
-| 容器化 | Docker Compose | 一键部署（含 Langfuse） |
-
-## 🔒 安全说明
-
-- API Key 通过环境变量配置，不要提交到代码仓库
-- 生产环境建议使用密钥管理服务（如阿里云 KMS）
-- 详细安全指南请参考 [docs/SECURITY.md](docs/SECURITY.md)
+| 前端 | React + Vite | 现代前端构建 |
+| 状态管理 | Zustand | 轻量级状态管理 |
+| 地图 | 高德地图 JS API | 地图展示和路线 |
+| AI 框架 | LangGraph | 基于图的 Agent 工作流 |
+| LLM | 通义千问 (Qwen) | 阿里云百炼平台 |
+| Web 框架 | FastAPI | 高性能异步 API |
+| 数据库 | PostgreSQL | 用户和行程存储 |
+| 缓存 | Redis | API 缓存和限流 |
+| 向量数据库 | Chroma | RAG 知识库 |
+| 搜索服务 | 博查搜索 | AI 优化的中文搜索 |
 
 ## 📄 许可证
 
 本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情。
-
-## 🙏 致谢
-
-- [LangChain](https://langchain.com/) / [LangGraph](https://langchain-ai.github.io/langgraph/) - AI 应用开发框架
-- [FastAPI](https://fastapi.tiangolo.com/) - 现代 Web 框架
-- [通义千问](https://tongyi.aliyun.com/) - 大语言模型
-- [高德开放平台](https://lbs.amap.com/) - 地图服务
-- [Langfuse](https://langfuse.com/) - LLM 可观测性平台

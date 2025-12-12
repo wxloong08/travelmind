@@ -55,7 +55,6 @@ export function GaodeMap() {
 
     // 防止重复初始化（React StrictMode 会触发两次）
     if (mapInstanceRef.current) {
-      console.log('[GaodeMap] Map already initialized, skipping');
       setIsLoading(false);
       setMapReady(true);
       return;
@@ -65,19 +64,12 @@ export function GaodeMap() {
 
     const initMap = async () => {
       try {
-        console.log('[GaodeMap] Starting map initialization...');
-        console.log('[GaodeMap] AMAP_KEY:', AMAP_KEY ? '已配置' : '未配置');
-        console.log('[GaodeMap] AMAP_SECRET:', AMAP_SECRET ? '已配置' : '未配置');
-
         // 设置安全密钥 - 必须在加载之前设置
         if (AMAP_SECRET) {
           window._AMapSecurityConfig = {
             securityJsCode: AMAP_SECRET,
           };
-          console.log('[GaodeMap] Security config set');
         }
-
-        console.log('[GaodeMap] Loading AMap SDK...');
 
         // 加载高德地图 - 添加超时处理
         const loadPromise = AMapLoader.load({
@@ -93,14 +85,9 @@ export function GaodeMap() {
 
         const AMap = await Promise.race([loadPromise, timeoutPromise]);
 
-        console.log('[GaodeMap] AMap SDK loaded successfully');
-
         if (!isMounted || !mapContainerRef.current) {
-          console.log('[GaodeMap] Component unmounted or container missing');
           return;
         }
-
-        console.log('[GaodeMap] Creating map instance...');
 
         // 创建地图实例
         const map = new AMap.Map(mapContainerRef.current, {
@@ -116,7 +103,6 @@ export function GaodeMap() {
         mapInstanceRef.current = map;
         setMapReady(true);
         setIsLoading(false);
-        console.log('[GaodeMap] Map initialized successfully');
 
         // 如果有目的地，进行地理编码
         if (destination && destination !== '未知目的地') {
@@ -125,12 +111,10 @@ export function GaodeMap() {
             if (status === 'complete' && result.geocodes.length) {
               const { lng, lat } = result.geocodes[0].location;
               map.setCenter([lng, lat]);
-              console.log('[GaodeMap] Centered on:', destination, [lng, lat]);
             }
           });
         }
       } catch (e) {
-        console.error('[GaodeMap] Map initialization failed:', e);
         if (isMounted) {
           setError(e.message || '地图加载失败，请刷新重试');
           setIsLoading(false);
@@ -142,8 +126,6 @@ export function GaodeMap() {
     const timer = setTimeout(() => {
       if (isMounted && mapContainerRef.current && !mapInstanceRef.current) {
         initMap();
-      } else {
-        console.log('[GaodeMap] Skipped init - isMounted:', isMounted, 'container:', !!mapContainerRef.current, 'mapInstance:', !!mapInstanceRef.current);
       }
     }, 100);
 

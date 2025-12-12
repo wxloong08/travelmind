@@ -75,15 +75,49 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["http://localhost:3000", "http://localhost:5173"]
 
     # ===========================================================
-    # 以下为【预留】配置 - 当前版本未使用
+    # 数据库配置【推荐】- 用户系统和数据持久化
     # ===========================================================
-    # Redis 缓存（预留：会话缓存、限流）
-    redis_url: str = ""
-    # 数据库（预留：用户系统、历史记录）
-    database_url: str = ""
-    # JWT 认证（预留：用户认证）
-    secret_key: str = ""
-    access_token_expire_minutes: int = 60
+    # PostgreSQL: postgresql+asyncpg://user:pass@localhost:5432/travelmind
+    database_url: str = Field(default="", description="数据库连接 URL")
+    
+    # ===========================================================
+    # Redis 缓存【可选】- 会话缓存和限流
+    # ===========================================================
+    # Redis: redis://localhost:6379/0
+    redis_url: str = Field(default="", description="Redis 连接 URL")
+    
+    # ===========================================================
+    # JWT 认证【需要数据库】
+    # ===========================================================
+    secret_key: str = Field(
+        default="",
+        description="JWT 密钥（生产环境必须设置强密钥）",
+    )
+    access_token_expire_minutes: int = Field(
+        default=60,
+        description="Access Token 过期时间（分钟）",
+    )
+    refresh_token_expire_days: int = Field(
+        default=7,
+        description="Refresh Token 过期时间（天）",
+    )
+    
+    # ===========================================================
+    # 腾讯云短信【可选】- 手机号登录
+    # ===========================================================
+    tencent_sms_secret_id: str = Field(default="", description="腾讯云 SecretId")
+    tencent_sms_secret_key: str = Field(default="", description="腾讯云 SecretKey")
+    tencent_sms_app_id: str = Field(default="", description="短信应用 ID")
+    tencent_sms_sign_name: str = Field(default="TravelMind", description="短信签名")
+    tencent_sms_template_id: str = Field(default="", description="短信模板 ID")
+    
+    # ===========================================================
+    # 管理员密码【推荐】- 后台管理登录
+    # ===========================================================
+    admin_password: str = Field(
+        default="", 
+        description="管理员登录密码（设置后可用密码登录后台）"
+    )
 
     @field_validator("cors_origins", mode="before")
     @classmethod
@@ -110,8 +144,27 @@ class Settings(BaseSettings):
 
     @property
     def redis_enabled(self) -> bool:
-        """Redis 是否已配置（当前未使用）"""
+        """Redis 是否已配置"""
         return bool(self.redis_url)
+    
+    @property
+    def database_enabled(self) -> bool:
+        """数据库是否已配置"""
+        return bool(self.database_url)
+    
+    @property
+    def auth_enabled(self) -> bool:
+        """认证系统是否已配置"""
+        return bool(self.secret_key and self.database_url)
+    
+    @property
+    def sms_enabled(self) -> bool:
+        """短信服务是否已配置"""
+        return bool(
+            self.tencent_sms_secret_id and 
+            self.tencent_sms_secret_key and 
+            self.tencent_sms_app_id
+        )
 
     @property
     def llm_configured(self) -> bool:

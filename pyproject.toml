@@ -41,6 +41,21 @@ dependencies = [
     
     # Redis for caching (optional)
     "redis>=5.0.0",
+    
+    # Database - PostgreSQL
+    "sqlalchemy[asyncio]>=2.0.0",
+    "asyncpg>=0.29.0",         # PostgreSQL 异步驱动
+    "alembic>=1.13.0",         # 数据库迁移
+    
+    # Authentication
+    "python-jose[cryptography]>=3.3.0",  # JWT
+    "passlib[bcrypt]>=1.7.4",  # 密码哈希（备用）
+    
+    # SMS Service - Tencent Cloud
+    "tencentcloud-sdk-python-sms>=3.0.0",
+    
+    # Rate Limiting
+    "cachetools>=5.3.0",       # 内存缓存工具
 ]
 
 [project.optional-dependencies]

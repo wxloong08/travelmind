@@ -1,0 +1,98 @@
+"""
+Alembic 迁移环境配置
+
+支持异步数据库连接
+"""
+
+import asyncio
+from logging.config import fileConfig
+
+from alembic import context
+from sqlalchemy import pool
+from sqlalchemy.engine import Connection
+from sqlalchemy.ext.asyncio import async_engine_from_config
+
+# Alembic Config 对象
+config = context.config
+
+# 配置日志
+if config.config_file_name is not None:
+    fileConfig(config.config_file_name)
+
+# 导入所有模型（用于自动生成迁移）
+from src.db.models import Base
+target_metadata = Base.metadata
+
+# 从环境变量获取数据库 URL
+def get_url():
+    """获取数据库连接 URL"""
+    import os
+    from dotenv import load_dotenv
+    
+    load_dotenv()
+    
+    url = os.getenv("DATABASE_URL", "")
+    
+    # 转换为异步驱动
+    if url.startswith("postgresql://"):
+        url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    
+    return url
+
+
+def run_migrations_offline() -> None:
+    """
+    离线模式运行迁移
+    
+    仅生成 SQL 脚本，不连接数据库
+    """
+    url = get_url()
+    context.configure(
+        url=url,
+        target_metadata=target_metadata,
+        literal_binds=True,
+        dialect_opts={"paramstyle": "named"},
+    )
+
+    with context.begin_transaction():
+        context.run_migrations()
+
+
+def do_run_migrations(connection: Connection) -> None:
+    """执行迁移"""
+    context.configure(connection=connection, target_metadata=target_metadata)
+
+    with context.begin_transaction():
+        context.run_migrations()
+
+
+async def run_async_migrations() -> None:
+    """异步运行迁移"""
+    configuration = config.get_section(config.config_ini_section)
+    configuration["sqlalchemy.url"] = get_url()
+    
+    connectable = async_engine_from_config(
+        configuration,
+        prefix="sqlalchemy.",
+        poolclass=pool.NullPool,
+    )
+
+    async with connectable.connect() as connection:
+        await connection.run_sync(do_run_migrations)
+
+    await connectable.dispose()
+
+
+def run_migrations_online() -> None:
+    """
+    在线模式运行迁移
+    
+    连接数据库并执行迁移
+    """
+    asyncio.run(run_async_migrations())
+
+
+if context.is_offline_mode():
+    run_migrations_offline()
+else:
+    run_migrations_online()

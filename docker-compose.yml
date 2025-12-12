@@ -6,6 +6,12 @@
 #   docker-compose up -d --build      # 重新构建并启动
 #   docker-compose logs -f            # 查看日志
 #   docker-compose down               # 停止服务
+#
+# 服务说明:
+#   - app: TravelMind API 服务
+#   - postgres: 用户数据库（用户、行程、对话）
+#   - redis: 缓存和限流（可选）
+#   - langfuse: 可观测性平台（可选）
 # ============================================================
 
 services:
@@ -41,6 +47,23 @@ services:
       # 向量数据库
       - CHROMA_PERSIST_DIR=/app/data/chroma
       
+      # 用户系统 - PostgreSQL
+      - DATABASE_URL=postgresql+asyncpg://travelmind:${POSTGRES_PASSWORD:-travelmind123}@postgres:5432/travelmind
+      
+      # 用户系统 - Redis（可选）
+      - REDIS_URL=redis://redis:6379/0
+      
+      # 用户系统 - JWT
+      - SECRET_KEY=${SECRET_KEY:-change-this-in-production-use-openssl-rand-hex-32}
+      - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
+      
+      # 用户系统 - 腾讯云短信（可选）
+      - TENCENT_SMS_SECRET_ID=${TENCENT_SMS_SECRET_ID:-}
+      - TENCENT_SMS_SECRET_KEY=${TENCENT_SMS_SECRET_KEY:-}
+      - TENCENT_SMS_APP_ID=${TENCENT_SMS_APP_ID:-}
+      - TENCENT_SMS_SIGN_NAME=${TENCENT_SMS_SIGN_NAME:-TravelMind}
+      - TENCENT_SMS_TEMPLATE_ID=${TENCENT_SMS_TEMPLATE_ID:-}
+      
       # Langfuse - 连接到同网络的 langfuse 服务
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
@@ -50,8 +73,10 @@ services:
     networks:
       - travelmind-network
     depends_on:
-      langfuse:
-        condition: service_started  # 不等待 langfuse 健康检查，加快启动速度
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
       interval: 30s
@@ -60,12 +85,57 @@ services:
       start_period: 10s
 
   # ============================================================
+  # PostgreSQL 数据库 - 用户系统
+  # ============================================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: travelmind-postgres
+    restart: unless-stopped
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    environment:
+      - POSTGRES_USER=travelmind
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-travelmind123}
+      - POSTGRES_DB=travelmind
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - travelmind-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U travelmind"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================================
+  # Redis 缓存（可选但推荐）
+  # ============================================================
+  redis:
+    image: redis:7-alpine
+    container_name: travelmind-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - travelmind-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ============================================================
   # Langfuse 可观测性平台（可选）
   # ============================================================
   langfuse:
     image: langfuse/langfuse:2
     container_name: travelmind-langfuse
     restart: unless-stopped
+    profiles:
+      - observability  # 使用 docker-compose --profile observability up 启动
     ports:
       - "${LANGFUSE_PORT:-3000}:3000"
     environment:
@@ -80,7 +150,6 @@ services:
       langfuse-db:
         condition: service_healthy
     healthcheck:
-      # 使用 wget 代替 curl（Langfuse 容器中没有 curl）
       test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/api/public/health || exit 1"]
       interval: 30s
       timeout: 10s
@@ -94,6 +163,8 @@ services:
     image: postgres:15-alpine
     container_name: travelmind-langfuse-db
     restart: unless-stopped
+    profiles:
+      - observability
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
@@ -114,6 +185,10 @@ networks:
 
 volumes:
   travelmind_data:
+    driver: local
+  postgres_data:
+    driver: local
+  redis_data:
     driver: local
   langfuse_db_data:
     driver: local

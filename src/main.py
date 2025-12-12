@@ -53,10 +53,48 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if not settings.amap_api_key:
         logger.warning("AMAP_API_KEY not configured, map features will not work")
 
+    # 初始化数据库
+    if settings.database_enabled:
+        try:
+            from src.db.database import init_db
+            await init_db()
+            logger.info("Database initialized")
+        except Exception as e:
+            logger.error("Database initialization failed", error=str(e))
+    else:
+        logger.warning("DATABASE_URL not configured, user system will not work")
+
+    # 初始化 Redis
+    if settings.redis_enabled:
+        try:
+            from src.cache import init_redis
+            await init_redis()
+            logger.info("Redis initialized")
+        except Exception as e:
+            logger.warning("Redis initialization failed, using in-memory cache", error=str(e))
+    else:
+        logger.info("Redis not configured, using in-memory cache")
+
     yield
 
     # 关闭时
     logger.info("Shutting down TravelMind")
+    
+    # 关闭数据库连接
+    if settings.database_enabled:
+        try:
+            from src.db.database import close_db
+            await close_db()
+        except Exception as e:
+            logger.error("Database close failed", error=str(e))
+    
+    # 关闭 Redis 连接
+    if settings.redis_enabled:
+        try:
+            from src.cache import close_redis
+            await close_redis()
+        except Exception as e:
+            logger.error("Redis close failed", error=str(e))
 
 
 # 创建 FastAPI 应用
@@ -144,6 +182,13 @@ async def log_requests(request: Request, call_next):
 
 # 注册路由
 app.include_router(router, prefix="/api/v1")
+
+# 注册认证路由（如果数据库已配置）
+if settings.database_enabled:
+    from src.api.routes import auth_router, trips_router, admin_router
+    app.include_router(auth_router, prefix="/api/v1")
+    app.include_router(trips_router, prefix="/api/v1")
+    app.include_router(admin_router, prefix="/api/v1")
 
 # 注册图片服务路由
 from src.services.images import register_image_routes

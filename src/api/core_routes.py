@@ -4,10 +4,10 @@ FastAPI 路由定义
 RESTful API 端点
 """
 
-from typing import Any
+from typing import Annotated, Any
 
 import structlog
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 
 from src.api.schemas import (
@@ -138,7 +138,18 @@ async def chat_stream(request: ChatRequest):
     import json
     import traceback
 
+    # 尝试获取认证信息（可选）
+    identity = None
+    if settings.database_enabled:
+        try:
+            from src.auth.deps import get_current_identity_optional
+            # 注意：这里简化处理，实际应该从请求头获取 token
+            # 暂时跳过认证，后续通过前端传递
+        except ImportError:
+            pass
+
     async def generate():
+        trip_id = None
         try:
             logger.info("Stream started", session_id=request.session_id, message=request.message[:100])
             
@@ -148,6 +159,24 @@ async def chat_stream(request: ChatRequest):
             ):
                 event_type = event.get("type", "unknown")
                 logger.debug("Stream event", event_type=event_type)
+                
+                # 在 end 事件时保存行程
+                if event_type == "end" and event.get("itinerary") and settings.database_enabled:
+                    try:
+                        from src.services.trip_service import save_trip_from_stream_event
+                        trip_id = await save_trip_from_stream_event(
+                            event_data=event,
+                            session_id=request.session_id,
+                            user_id=None,  # TODO: 从认证信息获取
+                            guest_id=None,  # TODO: 从认证信息获取
+                        )
+                        if trip_id:
+                            event["trip_id"] = trip_id
+                            logger.info("Trip saved", trip_id=trip_id, session_id=request.session_id)
+                    except Exception as save_error:
+                        logger.warning("Failed to save trip", error=str(save_error))
+                        # 保存失败不影响流式响应
+                
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
                 
         except Exception as e:
@@ -164,7 +193,7 @@ async def chat_stream(request: ChatRequest):
             )
             yield f"data: {json.dumps({'error': error_msg})}\n\n"
         finally:
-            logger.info("Stream completed", session_id=request.session_id)
+            logger.info("Stream completed", session_id=request.session_id, trip_id=trip_id)
             yield "data: [DONE]\n\n"
 
     return StreamingResponse(

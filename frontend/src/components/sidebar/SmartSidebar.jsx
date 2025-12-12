@@ -272,12 +272,144 @@ const LocalNewsWidget = ({ newsData, onRefresh, isLoading }) => {
 };
 
 // === 预算仪表盘 Widget ===
-const BudgetDashboardWidget = ({ budgetData }) => {
+const BudgetDashboardWidget = ({ budgetData, itinerary }) => {
     // 用户自定义预算状态
     const [userBudget, setUserBudget] = useState(0);
 
-    // 如果没有预算数据，显示空状态（带提示）
-    if (!budgetData) {
+    // 基于实际行程计算精确预算
+    const calculateBudget = () => {
+        if (!itinerary || itinerary.length === 0) {
+            return null;
+        }
+
+        let accommodationCost = 0;
+        let accommodationDetails = [];
+        let ticketCost = 0;
+        let ticketDetails = [];
+        let transportCost = 0;
+        let transportDetails = [];
+
+        const days = itinerary.length;
+        const nights = Math.max(days - 1, 0);
+
+        // 门票价格表（常见景点）
+        const ticketPrices = {
+            '故宫': 60, '颐和园': 30, '长城': 45, '天坛': 15,
+            '环球影城': 538, '迪士尼': 475, '欢乐谷': 299,
+            '博物馆': 0, '纪念馆': 0, '国家博物馆': 0,
+            '鸟巢': 50, '水立方': 30, '天安门': 0, '王府井': 0,
+            '南锣鼓巷': 0, '什刹海': 0, '后海': 0, '798': 0,
+        };
+
+        for (const day of itinerary) {
+            // 住宿费用
+            const accommodation = day.accommodation;
+            if (accommodation && accommodation.price) {
+                const priceStr = accommodation.price;
+                const match = priceStr.match(/(\d+)/);
+                if (match) {
+                    const price = parseInt(match[1]);
+                    accommodationCost += price;
+                    accommodationDetails.push({
+                        name: accommodation.name || '酒店',
+                        price: price,
+                    });
+                }
+            }
+
+            // 门票和交通费用
+            const activities = day.activities || [];
+            for (const activity of activities) {
+                const title = activity.title || '';
+                const type = activity.type || '';
+
+                // 跳过交通和酒店类型的活动
+                if (type === 'transport' || type === 'hotel') continue;
+
+                // 门票估算
+                let ticketPrice = 0;
+                for (const [keyword, price] of Object.entries(ticketPrices)) {
+                    if (title.includes(keyword)) {
+                        ticketPrice = price;
+                        break;
+                    }
+                }
+                // 如果没匹配到已知景点，检查是否是景点类型
+                if (ticketPrice === 0 && (type === 'attraction' || type === 'sight')) {
+                    // 默认估算
+                    if (title.includes('公园') || title.includes('广场') || title.includes('胡同')) {
+                        ticketPrice = 0; // 免费
+                    } else {
+                        ticketPrice = 30; // 普通景点
+                    }
+                }
+                if (ticketPrice > 0) {
+                    ticketCost += ticketPrice;
+                    ticketDetails.push({ name: title, price: ticketPrice });
+                }
+
+                // 交通费用
+                const transport = activity.transport_from_prev;
+                if (transport) {
+                    const method = transport.method || '';
+                    let tCost = 0;
+                    if (method.includes('地铁') || method.includes('公交')) {
+                        tCost = 5;
+                    } else if (method.includes('打车') || method.includes('出租') || method.includes('网约车')) {
+                        tCost = 40;
+                    } else if (method.includes('步行')) {
+                        tCost = 0;
+                    } else {
+                        tCost = 10;
+                    }
+                    if (tCost > 0) {
+                        transportCost += tCost;
+                        transportDetails.push({ method, cost: tCost });
+                    }
+                }
+            }
+        }
+
+        // 餐饮估算：每天约 150 元（早中晚）
+        const foodCost = days * 150;
+
+        // 其他费用：购物、零食等，约 50/天
+        const otherCost = days * 50;
+
+        const total = accommodationCost + ticketCost + transportCost + foodCost + otherCost;
+
+        return {
+            accommodation: {
+                total: accommodationCost,
+                details: accommodationDetails,
+                nights: nights,
+            },
+            tickets: {
+                total: ticketCost,
+                details: ticketDetails,
+            },
+            transport: {
+                total: transportCost,
+                details: transportDetails,
+            },
+            food: {
+                total: foodCost,
+                perDay: 150,
+            },
+            other: {
+                total: otherCost,
+                perDay: 50,
+            },
+            grandTotal: total,
+            days: days,
+            nights: nights,
+        };
+    };
+
+    const calculatedBudget = calculateBudget();
+
+    // 如果没有行程数据，显示空状态
+    if (!calculatedBudget) {
         return (
             <div className="bg-[#1a1d2d]/90 border border-white/10 rounded-2xl p-4 animate-fadeIn">
                 <div className="flex justify-between items-center mb-4">
@@ -286,47 +418,20 @@ const BudgetDashboardWidget = ({ budgetData }) => {
                     </h4>
                 </div>
                 <div className="text-center py-6 text-xs text-gray-500">
-                    <p>暂无数据</p>
-                    <p className="mt-1">请点击顶部 <span className="text-emerald-400">💰 预算</span> 按钮生成</p>
+                    <p>暂无行程数据</p>
+                    <p className="mt-1">生成行程后自动计算预算</p>
                 </div>
             </div>
         );
     }
 
-    // 解析预算数据（兼容多种格式）
-    const estimatedTotal = budgetData.total_amount || budgetData.total || 0;
-    const categories = budgetData.categories || [];
-
-    // 解析范围字符串（如 "800-1500"），返回平均值或第一个数字
-    const parseAmount = (val) => {
-        if (typeof val === 'number') return val;
-        if (typeof val !== 'string') return 0;
-
-        // 匹配范围格式： "800-1500" 或 "800~1500"
-        const rangeMatch = val.match(/(\d+)\s*[-~]\s*(\d+)/);
-        if (rangeMatch) {
-            const low = parseInt(rangeMatch[1]);
-            const high = parseInt(rangeMatch[2]);
-            return Math.round((low + high) / 2); // 取平均值
-        }
-
-        // 匹配单个数字
-        const singleMatch = val.match(/(\d+)/);
-        return singleMatch ? parseInt(singleMatch[1]) : 0;
-    };
-
-    // 计算分类总额
-    const plannedTotal = categories.reduce((sum, cat) => {
-        return sum + parseAmount(cat.amount || cat.val);
-    }, 0);
-
-    // 总预算：用户设定 > AI预估*1.2 > 分类累加
+    // 总预算：用户设定 > 计算值*1.2
     const totalBudget = userBudget > 0
         ? userBudget
-        : (estimatedTotal > 0 ? Math.ceil(estimatedTotal * 1.2) : plannedTotal);
+        : Math.ceil(calculatedBudget.grandTotal * 1.2);
 
-    const percent = totalBudget > 0 ? (plannedTotal / totalBudget) * 100 : 0;
-    const remaining = totalBudget - plannedTotal;
+    const percent = totalBudget > 0 ? (calculatedBudget.grandTotal / totalBudget) * 100 : 0;
+    const remaining = totalBudget - calculatedBudget.grandTotal;
     const isOverBudget = percent > 100;
 
     // 编辑预算
@@ -340,17 +445,28 @@ const BudgetDashboardWidget = ({ budgetData }) => {
     // 导出费用明细
     const handleExport = () => {
         const lines = [
-            `=== 预算明细 ===${budgetData.total_range ? ` (${budgetData.total_range})` : ''}`,
-            `总预算: ¥${totalBudget}`,
-            `已规划: ¥${plannedTotal}`,
-            `${remaining >= 0 ? '剩余' : '超支'}: ¥${Math.abs(remaining)}`,
+            `=== ${calculatedBudget.days}天${calculatedBudget.nights}晚行程预算明细 ===`,
             '',
-            '--- 分类明细 ---',
-            ...categories.map(c => `${c.name}: ¥${c.amount || c.val}`),
+            `🏨 住宿 (${calculatedBudget.nights}晚): ¥${calculatedBudget.accommodation.total}`,
+            ...calculatedBudget.accommodation.details.map(d => `   - ${d.name}: ¥${d.price}`),
+            '',
+            `🎫 门票: ¥${calculatedBudget.tickets.total}`,
+            ...calculatedBudget.tickets.details.map(d => `   - ${d.name}: ¥${d.price}`),
+            '',
+            `🚇 交通: ¥${calculatedBudget.transport.total}`,
+            `   (地铁/公交/打车等)`,
+            '',
+            `🍜 餐饮: ¥${calculatedBudget.food.total}`,
+            `   (约¥${calculatedBudget.food.perDay}/天)`,
+            '',
+            `🛍️ 其他: ¥${calculatedBudget.other.total}`,
+            `   (购物、零食等)`,
+            '',
+            `━━━━━━━━━━━━━━━━━━━━`,
+            `预计总花费: ¥${calculatedBudget.grandTotal}`,
+            `建议预算: ¥${totalBudget}`,
+            `剩余空间: ¥${remaining}`,
         ];
-        if (budgetData.saving_tip) {
-            lines.push('', `💡 省钱建议: ${budgetData.saving_tip}`);
-        }
         const text = lines.join('\n');
 
         navigator.clipboard.writeText(text).then(() => {
@@ -368,6 +484,37 @@ const BudgetDashboardWidget = ({ budgetData }) => {
         if (name.includes('门票') || name.includes('票') || name.includes('玩')) return <Ticket size={10} className="text-yellow-400" />;
         return <TrendingUp size={10} className="text-gray-400" />;
     };
+
+    // 构建分类数据
+    const categories = [
+        {
+            name: `住宿 (${calculatedBudget.nights}晚)`,
+            amount: calculatedBudget.accommodation.total,
+            detail: calculatedBudget.accommodation.details.map(d => d.name).join('、'),
+        },
+        {
+            name: '门票',
+            amount: calculatedBudget.tickets.total,
+            detail: calculatedBudget.tickets.details.length > 0
+                ? calculatedBudget.tickets.details.slice(0, 3).map(d => d.name).join('、') + (calculatedBudget.tickets.details.length > 3 ? '等' : '')
+                : '暂无',
+        },
+        {
+            name: '交通',
+            amount: calculatedBudget.transport.total,
+            detail: '地铁/公交/打车',
+        },
+        {
+            name: '餐饮',
+            amount: calculatedBudget.food.total,
+            detail: `约¥${calculatedBudget.food.perDay}/天`,
+        },
+        {
+            name: '其他',
+            amount: calculatedBudget.other.total,
+            detail: '购物、零食等',
+        },
+    ];
 
     return (
         <div className="bg-[#1a1d2d]/90 border border-white/10 rounded-2xl p-4 animate-fadeIn">
@@ -411,17 +558,26 @@ const BudgetDashboardWidget = ({ budgetData }) => {
 
             {/* 分类支出 */}
             <div className="space-y-2">
-                {categories.length > 0 ? categories.map((item, i) => (
-                    <div key={i} className="flex items-center justify-between bg-white/5 rounded px-2 py-1.5">
-                        <div className="flex items-center gap-2 text-xs text-gray-300">
-                            {getCategoryIcon(item.name || '')}
-                            <span className="truncate max-w-[120px]">{item.name}</span>
+                {categories.map((item, i) => (
+                    <div key={i} className="bg-white/5 rounded px-2 py-1.5">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2 text-xs text-gray-300">
+                                {getCategoryIcon(item.name)}
+                                <span className="truncate max-w-[100px]">{item.name}</span>
+                            </div>
+                            <div className="text-xs font-mono text-white font-bold">¥{item.amount.toLocaleString()}</div>
                         </div>
-                        <div className="text-xs font-mono text-white">¥{item.amount || item.val}</div>
+                        {item.detail && (
+                            <div className="text-[10px] text-gray-500 ml-5 truncate">{item.detail}</div>
+                        )}
                     </div>
-                )) : (
-                    <div className="text-center text-xs text-gray-500">暂无明细</div>
-                )}
+                ))}
+            </div>
+
+            {/* 总计 */}
+            <div className="mt-3 pt-3 border-t border-white/10 flex justify-between items-center">
+                <span className="text-xs text-gray-400">预计总花费</span>
+                <span className="text-sm font-bold text-emerald-400">¥{calculatedBudget.grandTotal.toLocaleString()}</span>
             </div>
 
             {/* 导出按钮 */}
@@ -434,6 +590,7 @@ const BudgetDashboardWidget = ({ budgetData }) => {
         </div>
     );
 };
+
 
 // === 智囊助手主组件 ===
 export function SmartSidebar({ isMobile, isDrawer, onClose, isCollapsed, onToggle }) {
@@ -539,7 +696,7 @@ export function SmartSidebar({ isMobile, isDrawer, onClose, isCollapsed, onToggl
                 onRefresh={fetchSidebarData}
                 isLoading={isLoading}
             />
-            <BudgetDashboardWidget budgetData={budget} />
+            <BudgetDashboardWidget budgetData={budget} itinerary={itinerary} />
         </div>
     );
 }

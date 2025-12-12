@@ -8,6 +8,9 @@
 import { useCallback, useRef } from 'react';
 import { chatApi } from '../api/client';
 import useTravelStore from '../store/useTravelStore';
+import useAuthStore from '../store/useAuthStore';
+
+const API_BASE = '/api/v1';
 
 /**
  * 模拟打字机效果
@@ -40,6 +43,38 @@ const simulateStream = (fullText, onChunk, onComplete) => {
   };
 };
 
+/**
+ * 检查并消耗配额
+ */
+async function checkAndConsumeQuota(token) {
+  if (!token) return { success: false, message: '未登录' };
+
+  try {
+    const response = await fetch(`${API_BASE}/auth/consume-quota`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      return {
+        success: false,
+        message: data.detail || '配额检查失败',
+        quota: data,
+      };
+    }
+
+    return { success: true, quota: data };
+  } catch (error) {
+    // 配额 API 失败时允许继续（后端可能未配置）
+    return { success: true };
+  }
+}
+
 export function useStreamChat() {
   const {
     sessionId,
@@ -71,6 +106,28 @@ export function useStreamChat() {
     if (cancelStreamRef.current) {
       cancelStreamRef.current();
       cancelStreamRef.current = null;
+    }
+
+    // 获取当前 token
+    const authState = useAuthStore.getState();
+    const token = authState.accessToken || authState.guestToken;
+
+    // 检查并消耗配额
+    const quotaResult = await checkAndConsumeQuota(token);
+    if (!quotaResult.success) {
+      // 配额不足，显示友好提示
+      const isGuest = authState.isGuest;
+      const tipMessage = isGuest
+        ? '😊 今日免费体验次数已用完，请登录获取更多次数~'
+        : '💡 今日使用次数已用完，明天再来或使用激活码增加次数';
+
+      addMessage({ role: 'user', content: message, isStreaming: false });
+      addMessage({
+        role: 'ai',
+        content: tipMessage,
+        isStreaming: false
+      });
+      return;
     }
 
     // 添加用户消息
@@ -157,7 +214,6 @@ export function useStreamChat() {
         }
       }
     } catch (error) {
-      console.error('Chat error:', error);
       updateLastMessage({
         content: '网络开小差了，请重试一下。',
         isStreaming: false,
@@ -194,7 +250,6 @@ export function useStreamChat() {
         setDestination(response.metadata.destination_detected);
       }
     } catch (error) {
-      console.error('Chat error:', error);
       addMessage({
         role: 'ai',
         content: '抱歉，出了点问题，请重试。',

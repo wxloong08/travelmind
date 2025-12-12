@@ -37,6 +37,7 @@ import { GaodeMap } from './components/map/GaodeMap';
 import { AiModal } from './components/modals/AiModal';
 import { ActivityDetailModal } from './components/modals/ActivityDetailModal';
 import { SmartSidebar } from './components/sidebar';
+import { UserButton } from './components/auth';
 
 function App() {
   const [input, setInput] = useState('');
@@ -148,14 +149,18 @@ function App() {
       {/* 左侧聊天区 */}
       <div className={`${mobileView === 'chat' ? 'flex' : 'hidden lg:flex'} w-full lg:w-[280px] xl:w-[320px] 2xl:w-[25%] flex-col border-r border-white/5 bg-gradient-to-b from-[#12141f] to-[#0f111a] relative z-20 flex-shrink-0 transition-all duration-300`}>
         {/* 聊天头部 */}
-        <div className="h-16 border-b border-white/5 flex items-center px-4 lg:px-6 gap-3 bg-white/2 backdrop-blur-md">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-purple-600 flex items-center justify-center shadow-lg shadow-blue-600/30">
-            <Navigation size={20} className="text-white" />
+        <div className="h-16 border-b border-white/5 flex items-center justify-between px-4 lg:px-6 bg-white/2 backdrop-blur-md">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-purple-600 flex items-center justify-center shadow-lg shadow-blue-600/30">
+              <Navigation size={20} className="text-white" />
+            </div>
+            <div>
+              <h1 className="font-bold text-white text-sm lg:text-base">TravelMind</h1>
+              <p className="text-[10px] lg:text-xs text-gray-500">AI 智能旅行管家</p>
+            </div>
           </div>
-          <div>
-            <h1 className="font-bold text-white text-sm lg:text-base">TravelMind</h1>
-            <p className="text-[10px] lg:text-xs text-gray-500">AI 智能旅行管家</p>
-          </div>
+          {/* 登录按钮 */}
+          <UserButton />
         </div>
 
         {/* 消息列表 */}

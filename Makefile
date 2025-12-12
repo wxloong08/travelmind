@@ -2,7 +2,7 @@
 # TravelMind Makefile
 # ============================================================
 
-.PHONY: help install dev test lint format clean docker-build docker-up docker-down
+.PHONY: help install dev test lint format clean docker-build docker-up docker-down db-init db-migrate db-upgrade db-downgrade
 
 .DEFAULT_GOAL := help
 
@@ -33,6 +33,27 @@ dev: ## 启动开发服务器
 	python -m uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
 
 # ============================================================
+# 数据库迁移（需要配置 DATABASE_URL）
+# ============================================================
+db-init: ## 初始化数据库（首次运行）
+	alembic upgrade head
+
+db-migrate: ## 生成新的迁移脚本 (usage: make db-migrate msg="add user table")
+	alembic revision --autogenerate -m "$(msg)"
+
+db-upgrade: ## 升级到最新版本
+	alembic upgrade head
+
+db-downgrade: ## 回滚一个版本
+	alembic downgrade -1
+
+db-history: ## 查看迁移历史
+	alembic history
+
+db-current: ## 查看当前版本
+	alembic current
+
+# ============================================================
 # 测试
 # ============================================================
 test: ## 运行测试
@@ -58,11 +79,14 @@ format: ## 代码格式化
 docker-build: ## 构建 Docker 镜像
 	docker-compose build --no-cache
 
-docker-up: ## 启动所有服务 (TravelMind + Langfuse)
-	docker-compose up -d
+docker-up: ## 启动核心服务 (API + PostgreSQL + Redis)
+	docker-compose up -d app postgres redis
+
+docker-up-all: ## 启动所有服务（含 Langfuse 可观测性）
+	docker-compose --profile observability up -d
 
 docker-down: ## 停止所有服务
-	docker-compose down
+	docker-compose --profile observability down
 
 docker-logs: ## 查看日志
 	docker-compose logs -f
@@ -71,8 +95,11 @@ docker-restart: ## 重启 TravelMind
 	docker-compose restart app
 
 docker-clean: ## 清理 Docker 资源
-	docker-compose down -v --rmi local
+	docker-compose --profile observability down -v --rmi local
 	docker system prune -f
+
+docker-db-init: ## Docker 环境初始化数据库
+	docker-compose exec app alembic upgrade head
 
 # ============================================================
 # 清理

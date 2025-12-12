@@ -142,18 +142,51 @@ def parse_trip_duration(user_input: str) -> dict:
 # 工具函数
 # ============================================================
 
-async def _search_web(query: str, count: int = 5) -> list[dict]:
-    """调用博查搜索"""
+async def _search_web(query: str, count: int = 5, destination: str | None = None) -> list[dict]:
+    """
+    搜索攻略（优先本地 RAG，不足时调用博查 API）
+    
+    Args:
+        query: 搜索查询
+        count: 期望结果数量
+        destination: 目的地（用于存储和过滤）
+    
+    Returns:
+        搜索结果列表
+    """
     try:
-        from src.tools import web_search
-        result = await web_search.ainvoke({"query": query, "count": count})
-        if result is None:
-            logger.warning("Web search returned None", query=query)
-            return []
-        return result.get("results", [])
+        from src.services.knowledge_service import get_knowledge_base
+        
+        kb = get_knowledge_base()
+        results, from_api = await kb.search_with_fallback(
+            query=query,
+            destination=destination,
+            count=count,
+            use_api_if_needed=True,
+        )
+        
+        logger.info(
+            "Web search completed",
+            query=query[:30],
+            results=len(results),
+            from_api=from_api,
+        )
+        
+        return results
+        
     except Exception as e:
-        logger.warning("Web search failed", query=query, error=str(e))
-        return []
+        logger.warning("Web search with RAG failed, falling back to direct API", error=str(e))
+        
+        # 降级：直接调用博查 API
+        try:
+            from src.tools import web_search
+            result = await web_search.ainvoke({"query": query, "count": count})
+            if result is None:
+                return []
+            return result.get("results", [])
+        except Exception as e2:
+            logger.warning("Direct API search also failed", error=str(e2))
+            return []
 
 
 async def _fetch_page_content(url: str, max_length: int = 8000) -> str:
@@ -192,6 +225,8 @@ async def _search_and_fetch_guides(
     """
     多轮精准搜索 + 完整攻略抓取
     
+    优先使用本地 RAG 知识库，不足时调用博查 API 并存储结果
+    
     返回结构化的攻略信息
     """
     logger.info("Starting multi-round guide search", 
@@ -214,7 +249,7 @@ async def _search_and_fetch_guides(
     high_quality_urls = []  # 收集高质量链接用于后续抓取
     
     for query in general_queries:
-        results = await _search_web(query, count=5)
+        results = await _search_web(query, count=5, destination=destination)
         for r in results:
             title = r.get("title", "")
             snippet = r.get("snippet", "")
@@ -226,10 +261,11 @@ async def _search_and_fetch_guides(
                 "snippet": snippet,
                 "url": url,
                 "source": source,
+                "from_cache": r.get("from_cache", False),
             })
             
-            # 识别高质量来源
-            if any(domain in url for domain in [
+            # 识别高质量来源（仅对非缓存结果抓取）
+            if not r.get("from_cache") and any(domain in url for domain in [
                 "zhihu.com", "mafengwo.cn", "xiaohongshu.com", 
                 "ctrip.com", "you.ctrip.com", "travel.qunar.com"
             ]):
@@ -246,24 +282,25 @@ async def _search_and_fetch_guides(
             ]
             
             for query in place_queries:
-                results = await _search_web(query, count=3)
+                results = await _search_web(query, count=3, destination=destination)
                 for r in results:
                     guides["place_guides"].append({
                         "place": place,
                         "title": r.get("title", ""),
                         "snippet": r.get("snippet", ""),
                         "url": r.get("url", ""),
+                        "from_cache": r.get("from_cache", False),
                     })
                     
                     url = r.get("url", "")
-                    if any(domain in url for domain in ["zhihu.com", "mafengwo.cn", "xiaohongshu.com"]):
+                    if not r.get("from_cache") and any(domain in url for domain in ["zhihu.com", "mafengwo.cn", "xiaohongshu.com"]):
                         high_quality_urls.append(url)
         
         logger.info("Place guides collected", places=must_visit_places, count=len(guides["place_guides"]))
     
     # ========== 第三轮：美食推荐 ==========
     food_query = f"{destination} {travel_style} 美食推荐 必吃 餐厅"
-    food_results = await _search_web(food_query, count=3)
+    food_results = await _search_web(food_query, count=3, destination=destination)
     for r in food_results:
         guides["food_guides"].append({
             "title": r.get("title", ""),
@@ -272,7 +309,7 @@ async def _search_and_fetch_guides(
     
     # ========== 第四轮：住宿区域建议 ==========
     accommodation_query = f"{destination} 住宿推荐 住哪个区域方便 {travel_style}"
-    acc_results = await _search_web(accommodation_query, count=3)
+    acc_results = await _search_web(accommodation_query, count=3, destination=destination)
     for r in acc_results:
         guides["accommodation_tips"].append({
             "title": r.get("title", ""),
@@ -283,6 +320,13 @@ async def _search_and_fetch_guides(
     # 去重并限制数量
     unique_urls = list(dict.fromkeys(high_quality_urls))[:3]
     
+    # 获取知识库用于存储
+    try:
+        from src.services.knowledge_service import get_knowledge_base
+        kb = get_knowledge_base()
+    except Exception:
+        kb = None
+    
     for url in unique_urls:
         logger.info("Fetching full guide content", url=url)
         content = await _fetch_page_content(url, max_length=6000)
@@ -291,6 +335,18 @@ async def _search_and_fetch_guides(
                 "url": url,
                 "content": content,
             })
+            
+            # 存储到 RAG 知识库
+            if kb:
+                try:
+                    await kb.store_full_content(
+                        url=url,
+                        content=content,
+                        destination=destination,
+                        title=f"{destination}攻略",
+                    )
+                except Exception as e:
+                    logger.warning("Failed to store content to RAG", error=str(e))
     
     logger.info("Full content fetched", count=len(guides["full_content"]))
     
@@ -435,6 +491,27 @@ async def understand_intent_node(state: AgentState) -> dict[str, Any]:
     # 根据任务类型初始化偏好
     if task_type == TaskType.TRAVEL_PLANNING.value:
         travel_pref = state.get("travel_preference") or {}
+        
+        # ========== 中途改口检测 ==========
+        # 检测目的地是否变化，如果变化则清空旧数据
+        old_destination = travel_pref.get("destination")
+        new_destination = extracted_info.get("destination")
+        
+        if old_destination and new_destination and old_destination != new_destination:
+            logger.info(
+                "Destination changed (mid-conversation correction detected)",
+                old=old_destination,
+                new=new_destination,
+            )
+            # 清空旧数据，强制重新收集
+            updates["collected_pois"] = []          # 清空 POI
+            updates["search_results"] = []          # 清空搜索结果
+            updates["weather_info"] = None          # 清空天气
+            updates["travel_plan"] = None           # 清空已生成的行程
+            # 重置旅行偏好（保留新信息）
+            travel_pref = {}
+        # ========== 中途改口检测结束 ==========
+        
         if extracted_info.get("destination"):
             travel_pref["destination"] = extracted_info["destination"]
         if extracted_info.get("dates"):
