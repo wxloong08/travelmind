@@ -18,8 +18,8 @@ export const useTravelStore = create(
         // 基础状态
         // ============================================================
 
-        // 目的地
-        destination: '未知目的地',
+        // 目的地（不持久化，只通过登录后的后端恢复）
+        destination: '',
         setDestination: (destination) => set({ destination }),
 
         // 旅行状态
@@ -51,6 +51,9 @@ export const useTravelStore = create(
         addMessage: (message) => set((state) => ({
           messages: [...state.messages, message],
         })),
+
+        // 一次性设置全部消息（用于恢复对话历史）
+        setMessages: (messages) => set({ messages }),
 
         updateLastMessage: (updates) => set((state) => {
           const messages = [...state.messages];
@@ -92,7 +95,11 @@ export const useTravelStore = create(
         // ============================================================
 
         itinerary: [],
-        setItinerary: (itinerary) => set({ itinerary }),
+        setItinerary: (itinerary) => set({ itinerary, selectedDayIdx: 0 }), // 行程更新时重置选中天
+
+        // 当前选中的天数索引（用于今日路线和地图同步）
+        selectedDayIdx: 0,
+        setSelectedDayIdx: (idx) => set({ selectedDayIdx: idx }),
 
         updateDayTips: (dayIndex, tips) => set((state) => {
           const itinerary = [...state.itinerary];
@@ -254,8 +261,7 @@ export const useTravelStore = create(
       {
         name: 'travelmind-storage-v2',
         partialize: (state) => ({
-          // 只持久化部分状态
-          destination: state.destination,
+          // 只持久化 sessionId，destination 通过后端恢复
           sessionId: state.sessionId,
         }),
       }

@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from src.auth.deps import get_current_identity, require_auth, CurrentIdentity
 from src.db.database import get_db, is_db_configured
 from src.db.repositories import TripRepository
+from src.db.repositories.conversation_repo import ConversationRepository
 
 logger = structlog.get_logger()
 
@@ -47,6 +48,19 @@ class TripListResponse(BaseModel):
     has_more: bool
 
 
+class ConversationMessage(BaseModel):
+    """对话消息"""
+    role: str  # 'user' 或 'ai'
+    content: str
+
+
+class ConversationData(BaseModel):
+    """对话数据"""
+    id: str
+    session_id: str | None
+    messages: list[ConversationMessage]
+
+
 class TripDetailResponse(BaseModel):
     """行程详情响应"""
     id: str
@@ -58,8 +72,11 @@ class TripDetailResponse(BaseModel):
     estimated_budget: int | None
     itinerary_data: dict
     weather_snapshot: dict | None
+    pois_snapshot: list | None = None
     created_at: str
     updated_at: str
+    # 可选：关联的对话数据（用于恢复聊天记录）
+    conversation: ConversationData | None = None
     
     class Config:
         from_attributes = True
@@ -123,6 +140,166 @@ async def get_trips(
 
 
 # ============================================================
+# 恢复最新行程（刷新页面后）- 必须在 /{trip_id} 之前定义
+# ============================================================
+
+@router.get(
+    "/latest",
+    response_model=TripDetailResponse,
+    summary="获取最新行程（用于刷新恢复）",
+)
+async def get_latest_trip(
+    identity: Annotated[CurrentIdentity, Depends(require_auth)],
+    db=Depends(get_db),
+):
+    """
+    获取用户最新的行程
+    
+    用于刷新页面后恢复状态（包含对话历史）
+    """
+    trip_repo = TripRepository(db)
+    
+    if identity.is_registered:
+        trips = await trip_repo.get_by_user(identity.user.id, limit=1)
+    else:
+        trips = await trip_repo.get_by_guest(identity.guest.id, limit=1)
+    
+    if not trips:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="暂无行程记录",
+        )
+    
+    trip = trips[0]
+    
+    # 获取关联的对话和消息
+    conversation_data = None
+    try:
+        conv_repo = ConversationRepository(db)
+        # Trip 模型有 conversations 关系，获取最新的对话
+        if trip.conversations:
+            conversation = trip.conversations[0]  # 取第一个（最新的）
+            messages = await conv_repo.get_messages(conversation.id, limit=100)
+            conversation_data = ConversationData(
+                id=conversation.id,
+                session_id=conversation.session_id if hasattr(conversation, 'session_id') else None,
+                messages=[
+                    ConversationMessage(role=msg.role, content=msg.content)
+                    for msg in messages
+                ],
+            )
+            logger.debug("Loaded conversation", 
+                        conversation_id=conversation.id, 
+                        message_count=len(messages))
+    except Exception as e:
+        logger.warning("Failed to load conversation", error=str(e))
+    
+    return TripDetailResponse(
+        id=trip.id,
+        title=trip.title,
+        destination=trip.destination,
+        days=trip.days,
+        travel_date=trip.travel_date.isoformat() if trip.travel_date else None,
+        user_budget=trip.user_budget,
+        estimated_budget=trip.estimated_budget,
+        itinerary_data=trip.itinerary_data,
+        weather_snapshot=trip.weather_snapshot,
+        pois_snapshot=trip.pois_snapshot,
+        created_at=trip.created_at.isoformat(),
+        updated_at=trip.updated_at.isoformat(),
+        conversation=conversation_data,
+    )
+
+
+# ============================================================
+# 检查匹配的行程（重复检测）
+# ============================================================
+
+class MatchRequest(BaseModel):
+    """行程匹配请求"""
+    destination: str
+    days: int
+
+
+class MatchResponse(BaseModel):
+    """行程匹配响应"""
+    matched: bool
+    trip: TripDetailResponse | None = None
+
+
+@router.post(
+    "/match",
+    response_model=MatchResponse,
+    summary="检查是否有匹配的历史行程",
+)
+async def match_trip(
+    request: MatchRequest,
+    identity: Annotated[CurrentIdentity, Depends(require_auth)],
+    db=Depends(get_db),
+):
+    """
+    检查用户是否有相同目的地+天数的历史行程
+    
+    用于重复检测：如果有匹配，前端可直接加载而非重新生成
+    """
+    trip_repo = TripRepository(db)
+    conv_repo = ConversationRepository(db)
+    
+    # 获取用户/游客的行程列表
+    if identity.is_registered:
+        trips = await trip_repo.get_by_user(identity.user.id, limit=50)
+    else:
+        trips = await trip_repo.get_by_guest(identity.guest.id, limit=20)
+    
+    # 查找匹配的行程
+    matched_trip = None
+    for trip in trips:
+        if trip.destination == request.destination and trip.days == request.days:
+            matched_trip = trip
+            break
+    
+    if not matched_trip:
+        return MatchResponse(matched=False, trip=None)
+    
+    # 获取对话历史
+    conversation_data = None
+    try:
+        # 使用 Trip 模型的 conversations 关系（和 get_latest_trip 一致）
+        if matched_trip.conversations:
+            conversation = matched_trip.conversations[0]  # 取第一个（最新的）
+            messages = await conv_repo.get_messages(conversation.id, limit=100)
+            conversation_data = ConversationData(
+                id=conversation.id,
+                session_id=conversation.session_id if hasattr(conversation, 'session_id') else None,
+                messages=[
+                    ConversationMessage(role=m.role, content=m.content)
+                    for m in messages
+                ]
+            )
+    except Exception as e:
+        logger.warning("Failed to load conversation for matched trip", error=str(e))
+    
+    return MatchResponse(
+        matched=True,
+        trip=TripDetailResponse(
+            id=matched_trip.id,
+            title=matched_trip.title,
+            destination=matched_trip.destination,
+            days=matched_trip.days,
+            travel_date=matched_trip.travel_date.isoformat() if matched_trip.travel_date else None,
+            user_budget=matched_trip.user_budget,
+            estimated_budget=matched_trip.estimated_budget,
+            itinerary_data=matched_trip.itinerary_data,
+            weather_snapshot=matched_trip.weather_snapshot,
+            pois_snapshot=matched_trip.pois_snapshot,
+            created_at=matched_trip.created_at.isoformat(),
+            updated_at=matched_trip.updated_at.isoformat(),
+            conversation=conversation_data,
+        )
+    )
+
+
+# ============================================================
 # 行程详情
 # ============================================================
 
@@ -162,6 +339,28 @@ async def get_trip_detail(
             detail="无权访问此行程",
         )
     
+    # 获取关联的对话和消息
+    conversation_data = None
+    try:
+        conv_repo = ConversationRepository(db)
+        # Trip 模型有 conversations 关系，获取最新的对话
+        if trip.conversations:
+            conversation = trip.conversations[0]  # 取第一个（最新的）
+            messages = await conv_repo.get_messages(conversation.id, limit=100)
+            conversation_data = ConversationData(
+                id=conversation.id,
+                session_id=conversation.session_id if hasattr(conversation, 'session_id') else None,
+                messages=[
+                    ConversationMessage(role=msg.role, content=msg.content)
+                    for msg in messages
+                ],
+            )
+            logger.debug("Loaded conversation for trip detail", 
+                        conversation_id=conversation.id, 
+                        message_count=len(messages))
+    except Exception as e:
+        logger.warning("Failed to load conversation for trip detail", error=str(e))
+    
     return TripDetailResponse(
         id=trip.id,
         title=trip.title,
@@ -172,8 +371,10 @@ async def get_trip_detail(
         estimated_budget=trip.estimated_budget,
         itinerary_data=trip.itinerary_data,
         weather_snapshot=trip.weather_snapshot,
+        pois_snapshot=trip.pois_snapshot,
         created_at=trip.created_at.isoformat(),
         updated_at=trip.updated_at.isoformat(),
+        conversation=conversation_data,
     )
 
 
@@ -272,52 +473,4 @@ async def search_trips_by_destination(
         ],
         total=len(trips),
         has_more=False,
-    )
-
-
-# ============================================================
-# 恢复最新行程（刷新页面后）
-# ============================================================
-
-@router.get(
-    "/latest",
-    response_model=TripDetailResponse,
-    summary="获取最新行程（用于刷新恢复）",
-)
-async def get_latest_trip(
-    identity: Annotated[CurrentIdentity, Depends(require_auth)],
-    db=Depends(get_db),
-):
-    """
-    获取用户最新的行程
-    
-    用于刷新页面后恢复状态
-    """
-    trip_repo = TripRepository(db)
-    
-    if identity.is_registered:
-        trips = await trip_repo.get_by_user(identity.user.id, limit=1)
-    else:
-        trips = await trip_repo.get_by_guest(identity.guest.id, limit=1)
-    
-    if not trips:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="暂无行程记录",
-        )
-    
-    trip = trips[0]
-    
-    return TripDetailResponse(
-        id=trip.id,
-        title=trip.title,
-        destination=trip.destination,
-        days=trip.days,
-        travel_date=trip.travel_date.isoformat() if trip.travel_date else None,
-        user_budget=trip.user_budget,
-        estimated_budget=trip.estimated_budget,
-        itinerary_data=trip.itinerary_data,
-        weather_snapshot=trip.weather_snapshot,
-        created_at=trip.created_at.isoformat(),
-        updated_at=trip.updated_at.isoformat(),
     )

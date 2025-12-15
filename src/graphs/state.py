@@ -147,6 +147,10 @@ class AgentState(TypedDict):
     next_action: str | None
     should_end: bool
 
+    # 重新生成支持
+    regenerate: bool
+    previous_itinerary: list[dict[str, Any]] | None
+
 
 def create_initial_state(session_id: str | None = None) -> AgentState:
     """创建初始状态"""
@@ -172,4 +176,6 @@ def create_initial_state(session_id: str | None = None) -> AgentState:
         errors=[],
         next_action=None,
         should_end=False,
+        regenerate=False,
+        previous_itinerary=None,
     )

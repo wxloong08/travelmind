@@ -63,7 +63,9 @@ class SendSMSResponse(BaseModel):
     """发送验证码响应"""
     success: bool
     message: str
-    # 开发模式会返回验证码
+    # 演示模式标识
+    demo_mode: bool = False
+    # 演示模式会返回验证码
     code: str | None = None
 
 
@@ -97,6 +99,29 @@ class RefreshTokenRequest(BaseModel):
     refresh_token: str
 
 
+# ============================================================
+# 密码相关模型
+# ============================================================
+
+class PasswordLoginRequest(BaseModel):
+    """密码登录请求"""
+    phone: str = Field(..., pattern=r"^1[3-9]\d{9}$", description="手机号")
+    password: str = Field(..., min_length=8, description="密码")
+
+
+class SetPasswordRequest(BaseModel):
+    """设置密码请求（需要短信验证）"""
+    phone: str = Field(..., pattern=r"^1[3-9]\d{9}$", description="手机号")
+    code: str = Field(..., min_length=6, max_length=6, description="验证码")
+    password: str = Field(..., min_length=8, description="新密码")
+
+
+class UpdateProfileRequest(BaseModel):
+    """更新用户资料请求"""
+    nickname: str | None = Field(None, max_length=50, description="昵称")
+    avatar_url: str | None = Field(None, max_length=500, description="头像 URL")
+
+
 class UserInfoResponse(BaseModel):
     """用户信息响应"""
     id: str
@@ -104,6 +129,8 @@ class UserInfoResponse(BaseModel):
     nickname: str | None
     avatar_url: str | None
     is_guest: bool
+    role: str | None = None  # 用户角色: free/paid/admin
+    has_password: bool = False  # 是否已设置密码
     created_at: str
 
 
@@ -170,15 +197,26 @@ async def send_sms_code(request: SendSMSRequest):
     
     - 60 秒内不可重复发送
     - 验证码 5 分钟有效
+    - 演示模式：验证码固定为 123456
     """
-    success, message = await sms_service.send_verification_code(request.phone)
+    result = await sms_service.send_verification_code(request.phone)
     
-    response = SendSMSResponse(success=success, message=message)
+    # 处理返回值（可能是 2 元组或 3 元组）
+    if len(result) == 3:
+        success, message, is_demo = result
+    else:
+        success, message = result
+        is_demo = False
     
-    # 开发模式返回验证码（方便测试）
-    if success and not settings.sms_enabled:
-        response.code = message  # 开发模式下 message 就是验证码
-        response.message = f"开发模式：验证码为 {message}"
+    response = SendSMSResponse(
+        success=success, 
+        message=message,
+        demo_mode=is_demo,
+    )
+    
+    # 演示模式返回固定验证码
+    if is_demo:
+        response.code = "123456"
     
     return response
 
@@ -320,6 +358,8 @@ async def get_current_user_info(
             nickname=identity.user.nickname,
             avatar_url=identity.user.avatar_url,
             is_guest=False,
+            role=identity.user.role,
+            has_password=bool(identity.user.password_hash),
             created_at=identity.user.created_at.isoformat(),
         )
     
@@ -337,6 +377,27 @@ async def get_current_user_info(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="未登录",
     )
+
+
+@router.get(
+    "/me/phone",
+    summary="获取当前用户完整手机号（用于密码修改）",
+)
+async def get_current_user_phone(
+    identity: Annotated[CurrentIdentity, Depends(get_current_identity)],
+):
+    """
+    获取当前登录用户的完整手机号
+    
+    仅供已登录用户使用，用于密码修改时发送验证码
+    """
+    if not identity.user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="请先登录",
+        )
+    
+    return {"phone": identity.user.phone}
 
 
 @router.post(
@@ -509,3 +570,183 @@ async def consume_quota(
         "is_guest": bool(guest_id),
     }
 
+
+# ============================================================
+# 密码登录和设置
+# ============================================================
+
+@router.post(
+    "/password/login",
+    response_model=TokenResponse,
+    summary="密码登录",
+)
+async def password_login(
+    request: PasswordLoginRequest,
+    db=Depends(get_db),
+):
+    """
+    使用手机号和密码登录
+    
+    - 用户必须已设置密码
+    - 如果用户不存在或未设置密码，返回错误
+    """
+    from src.auth.password import verify_password
+    
+    if not is_db_configured():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="数据库未配置",
+        )
+    
+    # 查询用户
+    user_repo = UserRepository(db)
+    user = await user_repo.get_by_phone(request.phone)
+    
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="手机号或密码错误",
+        )
+    
+    if not user.password_hash:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="该账号未设置密码，请使用短信验证码登录",
+        )
+    
+    if not verify_password(request.password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="手机号或密码错误",
+        )
+    
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="账号已被禁用",
+        )
+    
+    # 更新最后登录时间
+    await user_repo.update_last_login(user)
+    await db.commit()
+    
+    # 生成 Token
+    access_token = create_access_token(user.id, phone=request.phone)
+    refresh_token = create_refresh_token(user.id)
+    
+    logger.info("Password login", user_id=user.id)
+    
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        expires_in=settings.access_token_expire_minutes * 60,
+        user_id=user.id,
+        user=UserInfo(
+            id=user.id,
+            phone=request.phone[:3] + "****" + request.phone[-4:],
+            nickname=user.nickname,
+            avatar_url=user.avatar_url,
+        ),
+    )
+
+
+@router.post(
+    "/password/set",
+    summary="设置密码",
+)
+async def set_password(
+    request: SetPasswordRequest,
+    db=Depends(get_db),
+):
+    """
+    设置或修改密码（需要短信验证）
+    
+    - 用户必须已注册
+    - 需要验证短信验证码
+    - 可用于首次设置密码或忘记密码后重置
+    """
+    from src.auth.password import hash_password, validate_password, PasswordValidationError
+    
+    if not is_db_configured():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="数据库未配置",
+        )
+    
+    # 验证验证码
+    success, message = sms_service.verify_code(request.phone, request.code)
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=message,
+        )
+    
+    # 验证密码规则
+    try:
+        validate_password(request.password)
+    except PasswordValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    
+    # 查询用户
+    user_repo = UserRepository(db)
+    user = await user_repo.get_by_phone(request.phone)
+    
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="用户不存在，请先注册",
+        )
+    
+    # 设置密码
+    user.password_hash = hash_password(request.password)
+    await db.commit()
+    
+    logger.info("Password set", user_id=user.id)
+    
+    return {"message": "密码设置成功"}
+
+
+@router.put(
+    "/profile",
+    summary="更新用户资料",
+)
+async def update_profile(
+    request: UpdateProfileRequest,
+    identity: Annotated[CurrentIdentity, Depends(get_current_identity)],
+    db=Depends(get_db),
+):
+    """
+    更新用户资料（昵称、头像）
+    
+    - 需要登录
+    - 不支持游客
+    """
+    if not identity.user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="请先登录",
+        )
+    
+    user = identity.user
+    
+    if request.nickname is not None:
+        user.nickname = request.nickname
+    
+    if request.avatar_url is not None:
+        user.avatar_url = request.avatar_url
+    
+    await db.commit()
+    
+    logger.info("Profile updated", user_id=user.id)
+    
+    return {
+        "message": "资料更新成功",
+        "user": {
+            "id": user.id,
+            "nickname": user.nickname,
+            "avatar_url": user.avatar_url,
+        }
+    }

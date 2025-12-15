@@ -25,8 +25,7 @@ const API_BASE = '/api/v1';
 
 // === 今日路线 Widget ===
 const MiniMapWidget = ({ itinerary }) => {
-    const [selectedDayIdx, setSelectedDayIdx] = useState(0);
-    const { setActiveTab } = useTravelStore();
+    const { setActiveTab, selectedDayIdx, setSelectedDayIdx } = useTravelStore();
     const day = itinerary?.[selectedDayIdx];
 
     // 获取活动数据（兼容不同数据结构）
@@ -62,9 +61,15 @@ const MiniMapWidget = ({ itinerary }) => {
                             onChange={(e) => setSelectedDayIdx(Number(e.target.value))}
                             className="bg-black/30 border border-white/10 text-xs text-white rounded px-2 py-1 outline-none appearance-none pr-6 cursor-pointer hover:bg-black/50 transition-colors"
                         >
-                            {itinerary.map((d, i) => (
-                                <option key={i} value={i}>Day {d.day || i + 1}</option>
-                            ))}
+                            {itinerary.map((d, i) => {
+                                // 正确处理 day 字段：可能是数字 0, 1, 2... 或者字符串 "Day 0"
+                                const dayNum = typeof d.day === 'number' ? d.day :
+                                    (typeof d.day === 'string' ? parseInt(d.day.replace(/\D/g, ''), 10) : i);
+                                const dayLabel = dayNum === 0 ? '抵达日' : `Day ${dayNum}`;
+                                return (
+                                    <option key={i} value={i}>{dayLabel}</option>
+                                );
+                            })}
                         </select>
                         <ChevronDown size={12} className="absolute right-2 top-1.5 text-gray-400 pointer-events-none" />
                     </div>
@@ -348,23 +353,43 @@ const BudgetDashboardWidget = ({ budgetData, itinerary }) => {
                     ticketDetails.push({ name: title, price: ticketPrice });
                 }
 
-                // 交通费用
+                // 交通费用（增强版：基于时长估算打车费用）
                 const transport = activity.transport_from_prev;
                 if (transport) {
                     const method = transport.method || '';
+                    const durationStr = transport.duration || '';
                     let tCost = 0;
+
+                    // 提取时长（分钟）
+                    const durationMatch = durationStr.match(/(\d+)/);
+                    const durationMin = durationMatch ? parseInt(durationMatch[1], 10) : 15;
+
                     if (method.includes('地铁') || method.includes('公交')) {
+                        // 公交/地铁费用估算
+                        // 地铁一般 3-8 元，公交 2 元，平均按 5 元
                         tCost = 5;
-                    } else if (method.includes('打车') || method.includes('出租') || method.includes('网约车')) {
-                        tCost = 40;
+                    } else if (method.includes('打车') || method.includes('出租') || method.includes('网约车') || method.includes('的士')) {
+                        // 打车费用估算（北京标准）
+                        // 起步价：13元（3公里以内）
+                        // 里程费：约 2.3 元/公里
+                        // 时长费：约 0.5 元/分钟（低速时）
+                        // 假设平均时速 25km/h（考虑红绿灯和拥堵）
+                        const estimatedKm = (durationMin / 60) * 25;
+                        const baseFare = 13; // 起步价
+                        const distanceFare = Math.max(0, estimatedKm - 3) * 2.3; // 超出起步里程的费用
+                        const timeFare = Math.max(0, durationMin - 10) * 0.3; // 时长费（10分钟以上）
+                        tCost = Math.round(baseFare + distanceFare + timeFare);
+                        // 最低 13 元，最高限制在 200 元
+                        tCost = Math.min(Math.max(tCost, 13), 200);
                     } else if (method.includes('步行')) {
                         tCost = 0;
                     } else {
+                        // 其他交通方式（如骑行、接驳车等）
                         tCost = 10;
                     }
                     if (tCost > 0) {
                         transportCost += tCost;
-                        transportDetails.push({ method, cost: tCost });
+                        transportDetails.push({ method, cost: tCost, duration: durationStr });
                     }
                 }
             }
@@ -454,7 +479,9 @@ const BudgetDashboardWidget = ({ budgetData, itinerary }) => {
             ...calculatedBudget.tickets.details.map(d => `   - ${d.name}: ¥${d.price}`),
             '',
             `🚇 交通: ¥${calculatedBudget.transport.total}`,
-            `   (地铁/公交/打车等)`,
+            ...calculatedBudget.transport.details.map(d =>
+                `   - ${d.method}: ¥${d.cost}${d.duration ? ` (${d.duration})` : ''}`
+            ),
             '',
             `🍜 餐饮: ¥${calculatedBudget.food.total}`,
             `   (约¥${calculatedBudget.food.perDay}/天)`,

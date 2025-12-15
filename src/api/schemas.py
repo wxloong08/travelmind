@@ -41,6 +41,8 @@ class ChatRequest(BaseModel):
 
     message: str = Field(..., min_length=1, max_length=10000, description="用户消息")
     session_id: str | None = Field(None, description="会话ID，用于多轮对话")
+    regenerate: bool = Field(False, description="是否重新生成不同版本")
+    previous_itinerary: list[dict[str, Any]] | None = Field(None, description="上一版行程（用于生成不同版本）")
 
     model_config = {
         "json_schema_extra": {
@@ -48,6 +50,8 @@ class ChatRequest(BaseModel):
                 {
                     "message": "帮我规划一个杭州三日游",
                     "session_id": "session_123",
+                    "regenerate": False,
+                    "previous_itinerary": None,
                 }
             ]
         }

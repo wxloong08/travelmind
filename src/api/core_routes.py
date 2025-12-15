@@ -123,13 +123,17 @@ async def chat(request: ChatRequest) -> ChatResponse:
             detail=f"Chat processing failed: {str(e)}",
         )
 
+from fastapi import Header
 
 @router.post(
     "/chat/stream",
     tags=["Chat"],
     summary="流式对话",
 )
-async def chat_stream(request: ChatRequest):
+async def chat_stream(
+    request: ChatRequest,
+    authorization: str | None = Header(default=None),
+):
     """
     流式返回对话结果
 
@@ -138,41 +142,66 @@ async def chat_stream(request: ChatRequest):
     import json
     import traceback
 
-    # 尝试获取认证信息（可选）
-    identity = None
-    if settings.database_enabled:
+    # 从 Authorization header 解析用户信息
+    user_id = None
+    guest_id = None
+    
+    if settings.database_enabled and authorization:
         try:
-            from src.auth.deps import get_current_identity_optional
-            # 注意：这里简化处理，实际应该从请求头获取 token
-            # 暂时跳过认证，后续通过前端传递
-        except ImportError:
-            pass
+            from src.auth.jwt import verify_token
+            
+            # 提取 Bearer token
+            if authorization.startswith("Bearer "):
+                token = authorization.split(" ", 1)[1]
+                payload = verify_token(token)  # 返回 TokenPayload 对象或 None
+                
+                if payload:
+                    # TokenPayload 有 sub 和 is_guest 属性
+                    if payload.is_guest:
+                        guest_id = payload.sub
+                    else:
+                        user_id = payload.sub
+                    
+                    logger.info("Parsed auth from token", user_id=user_id, guest_id=guest_id, is_guest=payload.is_guest)
+        except Exception as e:
+            logger.warning("Failed to parse auth token", error=str(e))
 
     async def generate():
         trip_id = None
+        ai_response_content = ""  # 收集 AI 响应内容
         try:
-            logger.info("Stream started", session_id=request.session_id, message=request.message[:100])
+            logger.info("Stream started", session_id=request.session_id, message=request.message[:100], regenerate=request.regenerate)
             
             async for event in stream_travel_agent(
                 user_input=request.message,
                 session_id=request.session_id,
+                regenerate=request.regenerate,
+                previous_itinerary=request.previous_itinerary,
             ):
                 event_type = event.get("type", "unknown")
                 logger.debug("Stream event", event_type=event_type)
                 
-                # 在 end 事件时保存行程
+                # 收集 token 事件中的 AI 响应
+                if event_type == "token" and event.get("content"):
+                    ai_response_content = event.get("content", "")
+                
+                # 在 end 事件时保存行程和对话
                 if event_type == "end" and event.get("itinerary") and settings.database_enabled:
                     try:
                         from src.services.trip_service import save_trip_from_stream_event
+                        # 优先使用 end 事件中的 session_id（后端生成的），回退到请求中的
+                        effective_session_id = event.get("session_id") or request.session_id
                         trip_id = await save_trip_from_stream_event(
                             event_data=event,
-                            session_id=request.session_id,
-                            user_id=None,  # TODO: 从认证信息获取
-                            guest_id=None,  # TODO: 从认证信息获取
+                            session_id=effective_session_id,
+                            user_id=user_id,
+                            guest_id=guest_id,
+                            user_message=request.message,      # 传递用户输入
+                            ai_response=ai_response_content,   # 传递 AI 响应
                         )
                         if trip_id:
                             event["trip_id"] = trip_id
-                            logger.info("Trip saved", trip_id=trip_id, session_id=request.session_id)
+                            logger.info("Trip saved", trip_id=trip_id, user_id=user_id, guest_id=guest_id)
                     except Exception as save_error:
                         logger.warning("Failed to save trip", error=str(save_error))
                         # 保存失败不影响流式响应

@@ -9,6 +9,7 @@ from enum import Enum
 from typing import TYPE_CHECKING
 
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.db.models.base import Base, TimestampMixin, UUIDMixin
@@ -84,7 +85,7 @@ class ActivationCode(Base, UUIDMixin, TimestampMixin):
     )
     
     used_by_id: Mapped[str | None] = mapped_column(
-        String(36),
+        UUID(as_uuid=False),
         ForeignKey("users.id"),
         nullable=True,
         comment="使用者 ID",
@@ -92,7 +93,7 @@ class ActivationCode(Base, UUIDMixin, TimestampMixin):
     
     # 创建者（管理员）
     created_by_id: Mapped[str | None] = mapped_column(
-        String(36),
+        UUID(as_uuid=False),
         ForeignKey("users.id"),
         nullable=True,
         comment="创建者 ID",

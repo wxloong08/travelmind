@@ -27,21 +27,27 @@ import {
   Image,
   BrainCircuit,
   TrendingUp,
+  History,
+  Plus,
 } from 'lucide-react';
 
 import useTravelStore from './store/useTravelStore';
-import { useStreamChat, useAiFeature } from './hooks';
+import useAuthStore from './store/useAuthStore';
+import { useStreamChat, useAiFeature, useTripRestore } from './hooks';
 import { ChatMessage } from './components/chat/ChatMessage';
 import { ItineraryTimeline } from './components/dashboard/ItineraryTimeline';
 import { GaodeMap } from './components/map/GaodeMap';
 import { AiModal } from './components/modals/AiModal';
 import { ActivityDetailModal } from './components/modals/ActivityDetailModal';
 import { SmartSidebar } from './components/sidebar';
-import { UserButton } from './components/auth';
+import { UserButton, LoginModal } from './components/auth';
+import { TripHistoryDrawer } from './components/history';
 
 function App() {
   const [input, setInput] = useState('');
   const [showSidebarDrawer, setShowSidebarDrawer] = useState(false);
+  const [showHistoryDrawer, setShowHistoryDrawer] = useState(false);
+  const [showLoginModal, setShowLoginModal] = useState(false);
   const messagesEndRef = useRef(null);
 
   // 全局状态
@@ -75,6 +81,9 @@ function App() {
     generatePoster,
   } = useAiFeature();
 
+  // 刷新后从后端恢复行程
+  useTripRestore();
+
   // 自动滚动到底部
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -82,12 +91,23 @@ function App() {
 
   useEffect(scrollToBottom, [messages, isTyping]);
 
-  // 发送消息
+  // 认证状态
+  const accessToken = useAuthStore((state) => state.accessToken);
+  const guestToken = useAuthStore((state) => state.guestToken);
+  const isAuthenticated = !!accessToken || !!guestToken;
+
+  // 发送消息（需要先登录）
   const handleSend = () => {
-    if (input.trim()) {
-      sendMessage(input);
-      setInput('');
+    if (!input.trim()) return;
+
+    // 未认证时弹出登录框
+    if (!isAuthenticated) {
+      setShowLoginModal(true);
+      return;
     }
+
+    sendMessage(input);
+    setInput('');
   };
 
   // 点击行程活动
@@ -114,6 +134,19 @@ function App() {
       {/* Modals */}
       <AiModal />
       <ActivityDetailModal />
+
+      {/* 历史行程抽屉 */}
+      <TripHistoryDrawer
+        isOpen={showHistoryDrawer}
+        onClose={() => setShowHistoryDrawer(false)}
+        onTripLoaded={() => console.log('[App] Trip loaded from history')}
+      />
+
+      {/* 登录弹窗（发送消息时触发） */}
+      <LoginModal
+        isOpen={showLoginModal}
+        onClose={() => setShowLoginModal(false)}
+      />
 
       {/* 移动端底部导航 */}
       <div className="fixed bottom-0 left-0 right-0 lg:hidden z-40 bg-[#0f111a]/95 backdrop-blur-lg border-t border-white/5 px-4 py-2 flex justify-around items-center safe-area-bottom">
@@ -159,8 +192,31 @@ function App() {
               <p className="text-[10px] lg:text-xs text-gray-500">AI 智能旅行管家</p>
             </div>
           </div>
-          {/* 登录按钮 */}
-          <UserButton />
+
+          {/* 右侧操作按钮组 */}
+          <div className="flex items-center gap-2">
+            {/* 历史按钮 */}
+            <button
+              onClick={() => setShowHistoryDrawer(true)}
+              className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-lg transition-all"
+              title="历史行程"
+            >
+              <History size={18} />
+            </button>
+            {/* 新建按钮 */}
+            <button
+              onClick={() => {
+                useTravelStore.getState().resetTrip();
+                useTravelStore.getState().clearChat();
+              }}
+              className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-lg transition-all"
+              title="新建行程"
+            >
+              <Plus size={18} />
+            </button>
+            {/* 登录按钮 */}
+            <UserButton />
+          </div>
         </div>
 
         {/* 消息列表 */}

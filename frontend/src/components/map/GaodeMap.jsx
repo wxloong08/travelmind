@@ -39,7 +39,7 @@ export function GaodeMap() {
   const polylineRef = useRef(null);
   const infoWindowRef = useRef(null);
 
-  const { itinerary, destination, openDetailModal } = useTravelStore();
+  const { itinerary, destination, openDetailModal, selectedDayIdx } = useTravelStore();
 
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -140,7 +140,7 @@ export function GaodeMap() {
     };
   }, []);
 
-  // 更新 Markers
+  // 更新 Markers（只显示选中天的活动）
   useEffect(() => {
     if (!mapReady || !mapInstanceRef.current) return;
 
@@ -157,20 +157,52 @@ export function GaodeMap() {
       polylineRef.current = null;
     }
 
-    // 收集所有有坐标的活动
+    // 只获取选中天的活动
+    const selectedDay = itinerary[selectedDayIdx];
+    if (!selectedDay) return;
+
     const activities = [];
-    itinerary.forEach((day, dayIdx) => {
-      day.activities?.forEach((act, actIdx) => {
-        if (act.location?.lat && act.location?.lng) {
-          activities.push({
-            ...act,
-            dayIdx,
-            actIdx,
-            dayNum: day.day,
-          });
-        }
-      });
+    // 添加活动标记
+    selectedDay.activities?.forEach((act, actIdx) => {
+      if (act.location?.lat && act.location?.lng) {
+        activities.push({
+          ...act,
+          dayIdx: selectedDayIdx,
+          actIdx,
+          dayNum: selectedDay.day,
+        });
+      }
     });
+
+    // 获取住宿位置：优先当天，其次前一天的住宿
+    let accommodation = selectedDay.accommodation;
+    if (!accommodation?.location?.lat && selectedDayIdx > 0) {
+      // 返程日等情况：使用前一天的住宿
+      const prevDay = itinerary[selectedDayIdx - 1];
+      if (prevDay?.accommodation?.location?.lat) {
+        accommodation = prevDay.accommodation;
+      }
+    }
+
+    // 检查是否已有酒店类型的活动
+    const hasHotelActivity = activities.some(act =>
+      act.type === 'hotel' ||
+      (act.title && (act.title.includes('入住') || act.title.includes('酒店') || act.title.includes('出发')))
+    );
+
+    // 只在没有酒店活动时才添加住宿标记，避免重复
+    if (!hasHotelActivity && accommodation?.location?.lat && accommodation?.location?.lng) {
+      activities.push({
+        title: accommodation.name || '酒店位置',
+        desc: accommodation.address || accommodation.reason || '',
+        type: 'hotel',
+        location: accommodation.location,
+        time: selectedDay.accommodation ? '入住' : '出发点',
+        dayIdx: selectedDayIdx,
+        actIdx: -1, // 特殊标记表示是住宿
+        dayNum: selectedDay.day,
+      });
+    }
 
     if (activities.length === 0) return;
 
@@ -259,7 +291,7 @@ export function GaodeMap() {
     if (activities.length > 0) {
       map.setFitView(markersRef.current, false, [50, 50, 50, 50]);
     }
-  }, [itinerary, mapReady, openDetailModal]);
+  }, [itinerary, selectedDayIdx, mapReady, openDetailModal]);
 
   // 无行程数据
   const hasActivitiesWithLocation = itinerary.some((day) =>

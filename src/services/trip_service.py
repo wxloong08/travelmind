@@ -20,6 +20,8 @@ async def save_trip_from_stream_event(
     session_id: str | None = None,
     user_id: str | None = None,
     guest_id: str | None = None,
+    user_message: str | None = None,  # 用户输入的消息
+    ai_response: str | None = None,   # AI 响应消息
 ) -> str | None:
     """
     从流式响应的 end 事件保存行程
@@ -29,6 +31,8 @@ async def save_trip_from_stream_event(
         session_id: 会话 ID（用于关联对话）
         user_id: 用户 ID（登录用户）
         guest_id: 游客 ID
+        user_message: 用户发送的消息内容
+        ai_response: AI 的响应内容
     
     Returns:
         保存的行程 ID 或 None
@@ -50,9 +54,11 @@ async def save_trip_from_stream_event(
     try:
         from src.db.database import get_db_context
         from src.db.repositories import TripRepository
+        from src.db.repositories.conversation_repo import ConversationRepository
         
         async with get_db_context() as db:
             trip_repo = TripRepository(db)
+            conv_repo = ConversationRepository(db)
             
             # 计算天数
             days = len(itinerary)
@@ -71,6 +77,54 @@ async def save_trip_from_stream_event(
                 weather_snapshot=event_data.get("weather_forecast"),
                 pois_snapshot=event_data.get("pois", [])[:20],
             )
+            
+            # 调试日志
+            logger.debug(
+                "Saving conversation",
+                session_id=session_id,
+                has_user_message=bool(user_message),
+                has_ai_response=bool(ai_response),
+                trip_id=str(trip.id),
+            )
+            
+            # 创建或获取对话并保存消息
+            if session_id:
+                # 尝试获取现有对话，不存在则创建
+                conversation = await conv_repo.get_conversation_by_session(session_id)
+                if not conversation:
+                    conversation = await conv_repo.create_conversation(
+                        session_id=session_id,
+                        user_id=user_id,
+                        guest_id=guest_id,
+                        title=f"{destination}行程规划",
+                    )
+                    logger.info("Created new conversation", conversation_id=conversation.id)
+                
+                # 保存用户消息
+                if user_message:
+                    await conv_repo.add_message(
+                        conversation=conversation,
+                        role="user",
+                        content=user_message,
+                    )
+                
+                # 保存 AI 响应
+                if ai_response:
+                    await conv_repo.add_message(
+                        conversation=conversation,
+                        role="assistant",
+                        content=ai_response,
+                    )
+                
+                # 关联对话到行程
+                await conv_repo.link_trip(conversation, trip.id)
+                logger.debug(
+                    "Linked conversation to trip with messages",
+                    conversation_id=conversation.id,
+                    trip_id=trip.id,
+                    user_msg_saved=bool(user_message),
+                    ai_msg_saved=bool(ai_response),
+                )
             
             logger.info(
                 "Trip saved from stream",

@@ -8,6 +8,7 @@ from datetime import date, datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.db.models.base import Base, TimestampMixin, UUIDMixin
@@ -27,7 +28,7 @@ class UsageRecord(Base, UUIDMixin, TimestampMixin):
     
     # 用户/游客（二选一）
     user_id: Mapped[str | None] = mapped_column(
-        String(36),
+        UUID(as_uuid=False),
         ForeignKey("users.id"),
         nullable=True,
         index=True,
@@ -35,7 +36,7 @@ class UsageRecord(Base, UUIDMixin, TimestampMixin):
     )
     
     guest_id: Mapped[str | None] = mapped_column(
-        String(36),
+        UUID(as_uuid=False),
         ForeignKey("guests.id"),
         nullable=True,
         index=True,
@@ -103,7 +104,7 @@ class DailyUsageSummary(Base, UUIDMixin):
     
     # 用户/游客（二选一）
     user_id: Mapped[str | None] = mapped_column(
-        String(36),
+        UUID(as_uuid=False),
         ForeignKey("users.id"),
         nullable=True,
         index=True,
@@ -111,7 +112,7 @@ class DailyUsageSummary(Base, UUIDMixin):
     )
     
     guest_id: Mapped[str | None] = mapped_column(
-        String(36),
+        UUID(as_uuid=False),
         ForeignKey("guests.id"),
         nullable=True,
         index=True,

@@ -453,12 +453,56 @@ async def understand_intent_node(state: AgentState) -> dict[str, Any]:
     
     # 如果被分类为 general_chat 但消息明显是旅游规划，使用关键词匹配覆盖
     if raw_task_type == TaskType.GENERAL_CHAT.value:
-        travel_keywords = ["规划", "旅游", "游玩", "行程", "攻略", "去哪", "玩", "天游", "自由行", "亲子游", "情侣游", "天", "晚"]
-        if any(kw in user_message for kw in travel_keywords):
+        # ========== 方案 B：上下文感知重新生成 ==========
+        # 检测方式 1: 前端传入 regenerate=True 和 previous_itinerary
+        frontend_regenerate = state.get("regenerate", False)
+        frontend_previous_itinerary = state.get("previous_itinerary")
+        has_frontend_context = frontend_regenerate and frontend_previous_itinerary
+        
+        # 检测方式 2: 后端会话状态中有 travel_preference
+        regenerate_keywords = ["重新生成", "再来一次", "换一个版本", "重新规划", "再生成", "换个方案"]
+        existing_preference = state.get("travel_preference") or {}
+        has_existing_trip = bool(existing_preference.get("destination"))
+        has_keyword = any(kw in user_message for kw in regenerate_keywords)
+        
+        if has_frontend_context:
+            # 前端传入了重新生成上下文，使用 previous_itinerary 中的信息
+            logger.info("Frontend regeneration context detected", 
+                       previous_days=len(frontend_previous_itinerary),
+                       user_message=user_message[:100])
+            raw_task_type = TaskType.TRAVEL_PLANNING.value
+            result["task_type"] = raw_task_type
+            
+            # 从 previous_itinerary 中提取目的地信息，写入 extracted_info
+            # 这样后续的逻辑会将其合并到 travel_preference
+            if frontend_previous_itinerary:
+                first_day = frontend_previous_itinerary[0] if frontend_previous_itinerary else {}
+                # 尝试从第一天标题中提取目的地
+                day_title = first_day.get("title", "")
+                for city in ["北京", "上海", "广州", "深圳", "杭州", "成都", "重庆", "西安", "南京", "苏州", "三亚", "厦门", "青岛", "大理", "丽江", "香格里拉", "西双版纳", "桂林", "张家界", "黄山"]:
+                    if city in day_title:
+                        # 确保 extracted_info 存在
+                        if "extracted_info" not in result:
+                            result["extracted_info"] = {}
+                        result["extracted_info"]["destination"] = city
+                        result["extracted_info"]["days"] = len(frontend_previous_itinerary)
+                        logger.info("Extracted destination from previous itinerary", destination=city, days=len(frontend_previous_itinerary))
+                        break
+        elif has_existing_trip and has_keyword:
+            # 后端会话状态有行程信息且用户说了重新生成
+            logger.info("Context-aware regeneration detected from session", 
+                       destination=existing_preference.get("destination"),
+                       user_message=user_message[:100])
+            raw_task_type = TaskType.TRAVEL_PLANNING.value
+            result["task_type"] = raw_task_type
+        # ========== 上下文感知检测结束 ==========
+        
+        # 常规关键词匹配
+        elif any(kw in user_message for kw in ["规划", "旅游", "游玩", "行程", "攻略", "去哪", "玩", "天游", "自由行", "亲子游", "情侣游", "天", "晚"]):
             logger.info("Overriding to travel_planning via keyword matching", user_message=user_message[:100])
             raw_task_type = TaskType.TRAVEL_PLANNING.value
             # 尝试提取目的地
-            cities = ["北京", "上海", "广州", "深圳", "杭州", "成都", "重庆", "西安", "南京", "苏州", "三亚", "厦门", "青岛", "大理", "丽江"]
+            cities = ["北京", "上海", "广州", "深圳", "杭州", "成都", "重庆", "西安", "南京", "苏州", "三亚", "厦门", "青岛", "大理", "丽江", "香格里拉", "西双版纳", "桂林", "张家界", "黄山"]
             extracted = result.get("extracted_info", {})
             if not extracted.get("destination"):
                 for city in cities:
@@ -508,8 +552,28 @@ async def understand_intent_node(state: AgentState) -> dict[str, Any]:
             updates["search_results"] = []          # 清空搜索结果
             updates["weather_info"] = None          # 清空天气
             updates["travel_plan"] = None           # 清空已生成的行程
-            # 重置旅行偏好（保留新信息）
+            
+            # 保留天数、旅行风格等非目的地相关信息
+            preserved_dates = travel_pref.get("dates_raw")
+            preserved_days = travel_pref.get("days")
+            preserved_style = travel_pref.get("travel_style")
+            preserved_budget = travel_pref.get("budget")
+            
+            # 重置旅行偏好（只清空目的地相关数据）
             travel_pref = {}
+            
+            # 恢复保留的信息
+            if preserved_dates:
+                travel_pref["dates_raw"] = preserved_dates
+            if preserved_days:
+                travel_pref["days"] = preserved_days
+            if preserved_style:
+                travel_pref["travel_style"] = preserved_style
+            if preserved_budget:
+                travel_pref["budget"] = preserved_budget
+                
+            logger.info("Preserved travel preferences during destination change",
+                       dates_raw=preserved_dates, days=preserved_days, style=preserved_style)
         # ========== 中途改口检测结束 ==========
         
         if extracted_info.get("destination"):
@@ -1030,6 +1094,43 @@ async def planning_node(state: AgentState) -> dict[str, Any]:
 
 只返回纯 JSON！"""
 
+    # ========== 重新生成不同版本 ==========
+    regenerate = state.get("regenerate", False)
+    previous_itinerary = state.get("previous_itinerary")
+    
+    if regenerate and previous_itinerary:
+        # 构建上一版行程摘要
+        prev_summary = []
+        for day in previous_itinerary[:5]:  # 最多展示5天
+            day_num = day.get("day", "?")
+            title = day.get("title", "")
+            activities = day.get("activities", [])
+            activity_names = [a.get("title", "") for a in activities[:3]]
+            prev_summary.append(f"Day {day_num}: {title} - {', '.join(activity_names)}")
+        
+        prev_itinerary_text = "\n".join(prev_summary)
+        
+        regenerate_prompt = f"""
+
+## 🔄 重新生成要求（非常重要！）
+
+用户请求重新生成一个**不同版本**的行程。以下是上一版行程，请避免生成类似的安排：
+
+### 上一版行程摘要（请避免重复）：
+{prev_itinerary_text}
+
+### 生成不同版本的策略：
+1. **景点顺序调整**：如果上一版先去故宫再去颐和园，这次可以先去颐和园
+2. **替换部分景点**：保留核心必去景点，但替换 1-2 个次要景点
+3. **住宿区域变化**：尝试选择不同区域的酒店
+4. **时间安排调整**：如果上一版某天安排较紧凑，这次可以更轻松
+5. **美食推荐变化**：推荐不同的餐厅或美食
+
+⚠️ 重要：用户明确要求不同版本，如果生成的行程与上一版过于相似，用户会不满意！
+"""
+        planning_prompt += regenerate_prompt
+        logger.info("Added regeneration context to prompt", previous_days=len(previous_itinerary))
+
     messages = [
         Message(
             role="system",
@@ -1114,12 +1215,34 @@ async def planning_node(state: AgentState) -> dict[str, Any]:
                         selected_hotel = real_hotels[0]
                 
                 if selected_hotel:
+                    # 获取酒店位置 - 从 hotel 数据中获取正确的坐标
+                    hotel_location = selected_hotel.get("location")
+                    location_dict = None
+                    
+                    if hotel_location:
+                        # location 可能是多种格式：
+                        # 1. tuple/list: (lng, lat)
+                        # 2. dict: {"lat": x, "lng": y}  
+                        # 3. string: "lng,lat"
+                        if isinstance(hotel_location, (list, tuple)) and len(hotel_location) >= 2:
+                            location_dict = {"lng": float(hotel_location[0]), "lat": float(hotel_location[1])}
+                        elif isinstance(hotel_location, dict):
+                            location_dict = hotel_location
+                        elif isinstance(hotel_location, str) and "," in hotel_location:
+                            parts = hotel_location.split(",")
+                            if len(parts) >= 2:
+                                try:
+                                    location_dict = {"lng": float(parts[0]), "lat": float(parts[1])}
+                                except ValueError:
+                                    pass
+                    
                     day_plan["accommodation"] = {
                         "name": selected_hotel.get("name"),
                         "price": selected_hotel.get("price"),
                         "address": selected_hotel.get("address", ""),
                         "rating": selected_hotel.get("rating"),
                         "tags": selected_hotel.get("tags", []),
+                        "location": location_dict,  # 使用酒店自带的正确坐标
                         "reason": llm_accommodation.get("reason", "位置便利，性价比高"),
                         "check_in_note": llm_accommodation.get("check_in_note", "建议下午3点后入住"),
                         "stay_same_tomorrow": llm_accommodation.get("stay_same_tomorrow", True),
@@ -1131,6 +1254,139 @@ async def planning_node(state: AgentState) -> dict[str, Any]:
             
             logger.info("Accommodation data filled", 
                        days_with_hotel=sum(1 for d in itinerary if d.get("accommodation")))
+        
+        # ========== 后处理：为活动匹配 POI 坐标（使用高德 Geocoding API）==========
+        itinerary = travel_plan.get("itinerary", [])
+        
+        # 构建 POI 名称到坐标的映射（从 collected_pois 中提取）
+        poi_location_map = {}
+        for poi in collected_pois:
+            poi_name = poi.get("name", "")
+            poi_location = poi.get("location", {})
+            if poi_name and poi_location.get("lat") and poi_location.get("lng"):
+                poi_location_map[poi_name] = poi_location
+                # 同时用简短名称匹配（如 "故宫博物院" -> "故宫"）
+                for short_name in [poi_name[:2], poi_name[:3], poi_name[:4]]:
+                    if len(short_name) >= 2:
+                        poi_location_map.setdefault(short_name, poi_location)
+        
+        # 收集所有需要地理编码的活动（未有坐标且未能从 POI 映射中匹配到的）
+        activities_needing_geocode = []
+        activities_with_location = 0
+        
+        # 酒店相关关键词（这些活动应使用酒店坐标）
+        hotel_keywords = ["入住酒店", "入住", "酒店周边", "酒店附近", "住宿", "逛逛", "最后"]
+        
+        # 记录上一天的酒店位置，用于返程日
+        prev_day_hotel_location = None
+        
+        for day_idx, day_plan in enumerate(itinerary):
+            # 获取当天住宿的坐标
+            accommodation = day_plan.get("accommodation", {})
+            hotel_location = accommodation.get("location") if accommodation else None
+            
+            # 如果当天没有住宿（如返程日），使用前一天的酒店位置
+            if not hotel_location and prev_day_hotel_location:
+                hotel_location = prev_day_hotel_location
+            
+            # 更新前一天酒店位置，供下一天使用
+            if accommodation and accommodation.get("location"):
+                prev_day_hotel_location = accommodation.get("location")
+            
+            # 处理活动
+            for activity in day_plan.get("activities", []):
+                if activity.get("location"):
+                    activities_with_location += 1
+                    continue
+                
+                title = activity.get("title", "")
+                act_type = activity.get("type", "")
+                
+                # 优先检查：如果是酒店相关的活动，使用 accommodation 的坐标
+                is_hotel_activity = (
+                    act_type == "hotel" or 
+                    any(kw in title for kw in hotel_keywords)
+                )
+                
+                if is_hotel_activity and hotel_location:
+                    activity["location"] = hotel_location
+                    activities_with_location += 1
+                    logger.debug("Hotel activity matched to accommodation", title=title)
+                    continue
+                
+                # 尝试从 POI 映射匹配
+                matched_location = None
+                for poi_name, location in poi_location_map.items():
+                    if poi_name in title or title in poi_name:
+                        matched_location = location
+                        break
+                
+                if matched_location:
+                    activity["location"] = matched_location
+                    activities_with_location += 1
+                else:
+                    # 需要通过 geocoding API 获取
+                    activities_needing_geocode.append(activity)
+            
+            # 处理住宿（酒店也需要坐标）
+            accommodation = day_plan.get("accommodation")
+            if accommodation and not accommodation.get("location"):
+                hotel_name = accommodation.get("name", "")
+                # 尝试从 POI 映射匹配
+                matched_location = None
+                for poi_name, location in poi_location_map.items():
+                    if poi_name in hotel_name or hotel_name in poi_name:
+                        matched_location = location
+                        break
+                
+                if matched_location:
+                    accommodation["location"] = matched_location
+                elif hotel_name:
+                    activities_needing_geocode.append(accommodation)
+        
+        # 使用高德 POI 搜索获取缺失的坐标（比 geocode 更准确）
+        if activities_needing_geocode:
+            try:
+                import asyncio
+                from src.tools.amap import get_amap_client
+                
+                amap_client = get_amap_client()
+                max_search_calls = min(len(activities_needing_geocode), 10)  # 限制最多 10 个 API 调用
+                
+                logger.info("Starting POI search for activities", 
+                           total_needing=len(activities_needing_geocode),
+                           will_process=max_search_calls)
+                
+                for i, item in enumerate(activities_needing_geocode[:max_search_calls]):
+                    title = item.get("title") or item.get("name", "")
+                    if not title:
+                        continue
+                    
+                    try:
+                        # Rate limiting: 高德 QPS 限制
+                        if i > 0:
+                            await asyncio.sleep(0.35)  # 约 3 QPS
+                        
+                        # 使用 POI 搜索而不是 geocode（更准确）
+                        pois = await amap_client.search_poi(title, destination, page_size=1)
+                        if pois and len(pois) > 0:
+                            poi = pois[0]
+                            # POI.location 是 (lng, lat) 格式
+                            item["location"] = {"lat": poi.location[1], "lng": poi.location[0]}
+                            activities_with_location += 1
+                            logger.debug("POI search success", title=title, poi_name=poi.name, location=poi.location)
+                    except Exception as e:
+                        logger.warning("POI search failed", title=title, error=str(e))
+                        continue
+                
+            except Exception as e:
+                logger.warning("POI search batch failed", error=str(e))
+        
+        logger.info("POI location matching completed", 
+                   total_pois=len(poi_location_map),
+                   activities_with_location=activities_with_location,
+                   geocoded_count=min(len(activities_needing_geocode), 10) if activities_needing_geocode else 0)
+        
         
         # ================ 真实交通计算后处理（可选，失败不影响返回）================
         try:

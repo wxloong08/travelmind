@@ -71,6 +71,13 @@ class User(Base, UUIDMixin, TimestampMixin):
         comment="头像 URL",
     )
     
+    # 密码（可选，用户可以选择不设置密码）
+    password_hash: Mapped[str | None] = mapped_column(
+        String(128),
+        nullable=True,
+        comment="密码哈希（bcrypt）",
+    )
+    
     # ============ 用户等级和配额 ============
     role: Mapped[str] = mapped_column(
         String(20),

@@ -56,6 +56,8 @@ RUN pip install --no-cache-dir --upgrade pip && \
     # Cache - Redis
     redis>=5.0.0 \
     # Authentication
+    # bcrypt 4.0.1 是与 passlib 兼容的最新安全版本（4.1+ 移除了 __about__ 属性导致兼容问题）
+    bcrypt==4.0.1 \
     "python-jose[cryptography]>=3.3.0" \
     "passlib[bcrypt]>=1.7.4" \
     # SMS Service

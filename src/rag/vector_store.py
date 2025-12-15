@@ -72,15 +72,16 @@ class ChromaVectorStore(VectorStore):
         """延迟初始化 Chroma 客户端"""
         if self._client is None:
             import chromadb
-            from chromadb.config import Settings as ChromaSettings
 
-            self._client = chromadb.Client(
-                ChromaSettings(
-                    chroma_db_impl="duckdb+parquet",
-                    persist_directory=self.persist_directory,
+            # 使用 PersistentClient 进行持久化存储（ChromaDB 0.4+ 的正确方式）
+            self._client = chromadb.PersistentClient(
+                path=self.persist_directory,
+                settings=chromadb.Settings(
                     anonymized_telemetry=False,
-                )
+                    allow_reset=True,
+                ),
             )
+            logger.info("ChromaDB PersistentClient initialized", path=self.persist_directory)
         return self._client
 
     def _get_collection(self):
@@ -91,6 +92,7 @@ class ChromaVectorStore(VectorStore):
                 name=self.collection_name,
                 metadata={"hnsw:space": "cosine"},
             )
+            logger.info("ChromaDB collection ready", name=self.collection_name, count=self._collection.count())
         return self._collection
 
     async def _get_embeddings(self, texts: list[str]) -> list[list[float]]:
@@ -179,10 +181,9 @@ class ChromaVectorStore(VectorStore):
         logger.info("Documents deleted", count=len(ids))
 
     def persist(self) -> None:
-        """持久化到磁盘"""
-        if self._client:
-            self._client.persist()
-            logger.info("Vector store persisted", directory=self.persist_directory)
+        """持久化到磁盘（PersistentClient 自动持久化，此方法为兼容保留）"""
+        # PersistentClient 会自动持久化，无需手动调用
+        logger.debug("Persist called (PersistentClient auto-persists)")
 
 
 # 全局实例

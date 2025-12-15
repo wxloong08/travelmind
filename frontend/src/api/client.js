@@ -32,13 +32,19 @@ async function request(endpoint, options = {}) {
 
 /**
  * SSE 流式请求生成器
+ * @param {string} endpoint - API 端点
+ * @param {Object} body - 请求体
+ * @param {Object} headers - 额外的请求头（如 Authorization）
  */
-async function* streamRequest(endpoint, body) {
+async function* streamRequest(endpoint, body, headers = {}) {
   const url = `${API_BASE}${endpoint}`;
 
   const response = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...headers,
+    },
     body: JSON.stringify(body),
   });
 
@@ -100,9 +106,23 @@ export const chatApi = {
 
   /**
    * 流式对话
+   * @param {string} message - 用户消息
+   * @param {string|null} sessionId - 会话 ID
+   * @param {string|null} token - 认证 token（用于保存行程）
+   * @param {boolean} regenerate - 是否重新生成不同版本
+   * @param {Array|null} previousItinerary - 上一版行程（重新生成时传入）
    */
-  stream(message, sessionId = null) {
-    return streamRequest('/chat/stream', { message, session_id: sessionId });
+  stream(message, sessionId = null, token = null, regenerate = false, previousItinerary = null) {
+    const headers = {};
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    return streamRequest('/chat/stream', {
+      message,
+      session_id: sessionId,
+      regenerate,
+      previous_itinerary: previousItinerary,
+    }, headers);
   },
 };
 
@@ -321,12 +341,92 @@ export const systemApi = {
   },
 };
 
+// ============================================================
+// Trips API (历史行程管理)
+// ============================================================
+
+export const tripsApi = {
+  /**
+   * 获取行程列表
+   * @param {string} token - 认证 token
+   * @param {number} limit - 每页数量
+   * @param {number} offset - 偏移量
+   */
+  async list(token, limit = 20, offset = 0) {
+    return request(`/trips?limit=${limit}&offset=${offset}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+  },
+
+  /**
+   * 获取行程详情
+   * @param {string} token - 认证 token
+   * @param {string} tripId - 行程 ID
+   */
+  async get(token, tripId) {
+    return request(`/trips/${tripId}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+  },
+
+  /**
+   * 删除行程
+   * @param {string} token - 认证 token
+   * @param {string} tripId - 行程 ID
+   */
+  async delete(token, tripId) {
+    return request(`/trips/${tripId}`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+  },
+
+  /**
+   * 获取最新行程
+   * @param {string} token - 认证 token
+   */
+  async getLatest(token) {
+    return request('/trips/latest', {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+  },
+
+  /**
+   * 检查是否有匹配的历史行程（重复检测）
+   * @param {string} token - 认证 token
+   * @param {string} destination - 目的地
+   * @param {number} days - 天数
+   */
+  async match(token, destination, days) {
+    return request('/trips/match', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ destination, days }),
+    });
+  },
+};
+
 // 导出统一的 API 对象
 export const api = {
   chat: chatApi,
   tools: toolsApi,
   assistants: assistantsApi,
   system: systemApi,
+  trips: tripsApi,
 };
 
 export default api;

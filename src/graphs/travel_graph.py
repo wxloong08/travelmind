@@ -193,6 +193,8 @@ async def run_travel_agent(
 async def stream_travel_agent(
     user_input: str,
     session_id: str | None = None,
+    regenerate: bool = False,
+    previous_itinerary: list[dict[str, Any]] | None = None,
 ):
     """
     流式运行旅游规划 Agent
@@ -206,7 +208,8 @@ async def stream_travel_agent(
     
     logger.info("Streaming travel agent started", 
                 session_id=session_id, 
-                input_preview=user_input[:100])
+                input_preview=user_input[:100],
+                regenerate=regenerate)
 
     initial_state = create_initial_state(session_id)
     actual_session_id = session_id or initial_state["session_id"]
@@ -214,6 +217,8 @@ async def stream_travel_agent(
     state_with_message: AgentState = {
         **initial_state,
         "messages": [HumanMessage(content=user_input)],
+        "regenerate": regenerate,
+        "previous_itinerary": previous_itinerary,
     }
 
     config = {

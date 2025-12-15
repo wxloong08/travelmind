@@ -120,6 +120,15 @@ class SMSService:
         # 获取客户端
         client = self._get_client()
         
+        # 开发/演示模式：使用固定验证码 123456
+        if not client:
+            code = "123456"  # 固定验证码，方便演示
+            logger.info(
+                "SMS service not configured, using demo mode",
+                phone=phone[:3] + "****" + phone[-4:],
+                code=code,
+            )
+        
         if client:
             # 发送短信
             try:
@@ -140,28 +149,22 @@ class SMSService:
                 else:
                     error_msg = resp.SendStatusSet[0].Message if resp.SendStatusSet else "Unknown error"
                     logger.error("SMS send failed", error=error_msg)
-                    return False, f"短信发送失败: {error_msg}"
+                    return False, f"短信发送失败: {error_msg}", False
                     
             except Exception as e:
                 logger.error("SMS send error", error=str(e))
-                return False, f"短信发送失败: {str(e)}"
-        else:
-            # 开发模式：不实际发送
-            logger.info(
-                "SMS service not configured, using dev mode",
-                phone=phone[:3] + "****" + phone[-4:],
-                code=code,
-            )
+                return False, f"短信发送失败: {str(e)}", False
         
         # 存储验证码
         expire_at = datetime.now() + timedelta(minutes=self.CODE_EXPIRE_MINUTES)
         _verification_codes[phone] = (code, expire_at)
         self._last_send_time[phone] = datetime.now()
         
-        # 开发模式返回验证码，生产模式返回成功消息
-        if not client:
-            return True, code  # 开发模式返回验证码
-        return True, f"验证码已发送到 {phone[:3]}****{phone[-4:]}"
+        # 返回结果，包含是否为演示模式
+        is_demo = not client
+        if is_demo:
+            return True, f"演示模式，验证码为 {code}", True
+        return True, f"验证码已发送到 {phone[:3]}****{phone[-4:]}", False
     
     def verify_code(self, phone: str, code: str) -> tuple[bool, str]:
         """

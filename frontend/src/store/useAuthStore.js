@@ -5,12 +5,13 @@
  */
 
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage } from 'zustand/middleware';
 
 const API_BASE = '/api/v1';
 
-// 生成设备指纹（简化版，保证至少 16 字符）
+// 生成稳定的设备指纹（不包含时间戳，确保同一设备始终生成相同指纹）
 const generateDeviceFingerprint = () => {
+    // 收集稳定的设备特征
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
     ctx.textBaseline = 'top';
@@ -18,26 +19,35 @@ const generateDeviceFingerprint = () => {
     ctx.fillText('fingerprint', 2, 2);
     const canvasData = canvas.toDataURL();
 
-    const data = [
+    // 只使用稳定的特征，不包含任何时间相关的值
+    const stableFeatures = [
         navigator.userAgent,
         navigator.language,
         screen.width + 'x' + screen.height,
+        screen.colorDepth,
         new Date().getTimezoneOffset(),
-        canvasData.slice(-50),
+        navigator.hardwareConcurrency || 'unknown',
+        canvasData.slice(-100),  // canvas 指纹更长一些
     ].join('|');
 
-    // 简单哈希
+    // 生成稳定的哈希
     let hash = 0;
-    for (let i = 0; i < data.length; i++) {
-        const char = data.charCodeAt(i);
+    for (let i = 0; i < stableFeatures.length; i++) {
+        const char = stableFeatures.charCodeAt(i);
         hash = ((hash << 5) - hash) + char;
         hash = hash & hash;
     }
 
-    // 确保指纹长度至少 16 字符：前缀 + hash(补零到8位) + 时间戳
-    const hashStr = Math.abs(hash).toString(36).padStart(8, '0');
-    const timeStr = Date.now().toString(36).padStart(9, '0');
-    return 'tm' + hashStr + timeStr;  // 2 + 8 + 9 = 19 字符
+    // 生成第二个哈希以增加长度
+    let hash2 = 5381;
+    for (let i = 0; i < stableFeatures.length; i++) {
+        hash2 = ((hash2 << 5) + hash2) + stableFeatures.charCodeAt(i);
+    }
+
+    // 确保指纹长度至少 16 字符：前缀 + 两个 hash
+    const hashStr1 = Math.abs(hash).toString(36).padStart(8, '0');
+    const hashStr2 = Math.abs(hash2).toString(36).padStart(8, '0');
+    return 'tm' + hashStr1 + hashStr2;  // 2 + 8 + 8 = 18 字符，稳定不变
 };
 
 const useAuthStore = create(
@@ -52,18 +62,22 @@ const useAuthStore = create(
             isLoading: false,
             error: null,
 
-            // 计算属性
-            get isAuthenticated() {
-                return !!get().accessToken || !!get().guestToken;
+            // 计算属性（使用函数避免 zustand persist hydration 问题）
+            getIsAuthenticated: () => {
+                const state = get();
+                return !!(state?.accessToken || state?.guestToken);
             },
-            get isLoggedIn() {
-                return !!get().accessToken && !!get().user;
+            getIsLoggedIn: () => {
+                const state = get();
+                return !!(state?.accessToken && state?.user);
             },
-            get isGuest() {
-                return !get().accessToken && !!get().guestToken;
+            getIsGuest: () => {
+                const state = get();
+                return !state?.accessToken && !!state?.guestToken;
             },
-            get currentToken() {
-                return get().accessToken || get().guestToken;
+            getCurrentToken: () => {
+                const state = get();
+                return state?.accessToken || state?.guestToken;
             },
 
             // 获取当前身份类型
@@ -190,6 +204,41 @@ const useAuthStore = create(
                 }
             },
 
+            // 密码登录
+            loginWithPassword: async (phone, password) => {
+                set({ isLoading: true, error: null });
+
+                try {
+                    const response = await fetch(`${API_BASE}/auth/password/login`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ phone, password }),
+                    });
+
+                    const data = await response.json();
+
+                    if (!response.ok) {
+                        throw new Error(data.detail || '登录失败');
+                    }
+
+                    set({
+                        user: data.user,
+                        accessToken: data.access_token,
+                        refreshToken: data.refresh_token,
+                        // 清除游客信息
+                        guest: null,
+                        guestToken: null,
+                        isLoading: false,
+                        error: null,
+                    });
+
+                    return { success: true };
+                } catch (error) {
+                    set({ error: error.message, isLoading: false });
+                    return { success: false, message: error.message };
+                }
+            },
+
             // 刷新 Token
             refreshAccessToken: async () => {
                 const state = get();
@@ -238,9 +287,14 @@ const useAuthStore = create(
 
             // 清除错误
             clearError: () => set({ error: null }),
+
+            // Hydration 状态（用于等待 localStorage 恢复完成）
+            _hasHydrated: false,
+            setHasHydrated: (state) => set({ _hasHydrated: state }),
         }),
         {
             name: 'auth-storage',
+            storage: createJSONStorage(() => localStorage),
             partialize: (state) => ({
                 user: state.user,
                 guest: state.guest,
@@ -248,6 +302,10 @@ const useAuthStore = create(
                 refreshToken: state.refreshToken,
                 guestToken: state.guestToken,
             }),
+            onRehydrateStorage: () => (state, error) => {
+                // 当 hydration 完成时调用
+                state?.setHasHydrated(true);
+            },
         }
     )
 );

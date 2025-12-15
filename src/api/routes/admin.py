@@ -335,6 +335,38 @@ async def add_user_bonus(
     return {"message": message}
 
 
+@router.delete("/users/{user_id}")
+async def delete_user(
+    user_id: str,
+    admin: Annotated[User, Depends(require_admin)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """删除用户（仅非管理员用户可删除）"""
+    user = await db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    
+    # 不能删除管理员
+    if user.role == UserRole.ADMIN.value:
+        raise HTTPException(status_code=400, detail="不能删除管理员用户")
+    
+    # 不能删除自己
+    if user.id == admin.id:
+        raise HTTPException(status_code=400, detail="不能删除自己")
+    
+    await db.delete(user)
+    await db.commit()
+    
+    logger.info(
+        "Admin deleted user",
+        admin_id=admin.id,
+        deleted_user_id=user_id,
+        deleted_phone=user.phone[:3] + "****" + user.phone[-4:] if user.phone else None,
+    )
+    
+    return {"message": "用户已删除"}
+
+
 # ============================================================
 # 激活码管理
 # ============================================================
@@ -591,11 +623,11 @@ ADMIN_HTML = """
                 </div>
                 <div class="card rounded-xl p-4 text-center">
                     <div class="text-2xl font-bold text-emerald-400" id="stat-today">-</div>
-                    <div class="text-gray-500 text-sm">今日使用</div>
+                    <div class="text-gray-500 text-sm">今日生成次数</div>
                 </div>
                 <div class="card rounded-xl p-4 text-center">
                     <div class="text-2xl font-bold text-blue-400" id="stat-week">-</div>
-                    <div class="text-gray-500 text-sm">本周使用</div>
+                    <div class="text-gray-500 text-sm">本周生成次数</div>
                 </div>
             </div>
             
@@ -653,16 +685,28 @@ ADMIN_HTML = """
             <div class="card rounded-2xl p-6 w-full max-w-md mx-4">
                 <h3 class="text-lg font-bold text-white mb-4">生成激活码</h3>
                 <div class="space-y-4">
-                    <select id="code-type" class="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white">
-                        <option value="upgrade_paid">升级为付费用户</option>
-                        <option value="add_quota">增加额外次数</option>
-                    </select>
-                    <input id="code-quota" type="number" placeholder="次数（仅增加次数类型）" value="10"
-                        class="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder-gray-500">
-                    <input id="code-count" type="number" placeholder="生成数量" value="1" min="1" max="100"
-                        class="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder-gray-500">
-                    <input id="code-note" type="text" placeholder="备注（可选）"
-                        class="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder-gray-500">
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">激活码作用</label>
+                        <select id="code-type" class="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white" style="color-scheme: dark;">
+                            <option value="upgrade_paid" style="background:#1a1d2d; color:white;">升级为付费用户 (用户使用后变为付费会员)</option>
+                            <option value="add_quota" style="background:#1a1d2d; color:white;">增加额外次数 (给用户增加临时使用次数)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">增加次数 (仅"增加额外次数"类型有效)</label>
+                        <input id="code-quota" type="number" placeholder="例如: 10" value="10"
+                            class="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder-gray-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">生成数量 (1-100个)</label>
+                        <input id="code-count" type="number" placeholder="生成数量" value="1" min="1" max="100"
+                            class="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder-gray-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">备注 (可选)</label>
+                        <input id="code-note" type="text" placeholder="例如: 送给VIP客户的激活码"
+                            class="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder-gray-500">
+                    </div>
                 </div>
                 <div id="generated-codes" class="mt-4 hidden">
                     <div class="text-sm text-gray-400 mb-2">生成的激活码：</div>
@@ -711,9 +755,8 @@ ADMIN_HTML = """
                         logout();
                         return;
                     }
-                    // 检查是否是管理员
-                    const userRes = await api(`/admin/users/${data.id}`);
-                    if (!userRes.ok) {
+                    // 直接使用 role 字段检查是否是管理员
+                    if (data.role !== 'admin') {
                         alert('需要管理员权限');
                         logout();
                         return;
@@ -852,9 +895,16 @@ ADMIN_HTML = """
                             }">${u.role}</span>
                             <span class="ml-2 text-gray-500 text-xs">配额: ${u.daily_quota}/天 + ${u.bonus_quota}额外</span>
                         </div>
-                        <button onclick="editUser('${u.id}')" class="btn px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-sm">
-                            编辑
-                        </button>
+                        <div class="flex gap-2">
+                            <button onclick="editUser('${u.id}')" class="btn px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-sm">
+                                编辑
+                            </button>
+                            ${u.role !== 'admin' ? `
+                            <button onclick="deleteUser('${u.id}', '${u.phone || u.nickname}')" class="btn px-3 py-1 bg-red-600 hover:bg-red-500 text-white rounded text-sm">
+                                删除
+                            </button>
+                            ` : ''}
+                        </div>
                     </div>
                 `).join('');
             }
@@ -877,10 +927,10 @@ ADMIN_HTML = """
                     </div>
                     <div>
                         <label class="text-gray-400 text-sm">角色</label>
-                        <select id="edit-role" class="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white">
-                            <option value="free" ${user.role === 'free' ? 'selected' : ''}>免费用户</option>
-                            <option value="paid" ${user.role === 'paid' ? 'selected' : ''}>付费用户</option>
-                            <option value="admin" ${user.role === 'admin' ? 'selected' : ''}>管理员</option>
+                        <select id="edit-role" class="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white" style="color-scheme: dark;">
+                            <option value="free" style="background:#1a1d2d; color:white;" ${user.role === 'free' ? 'selected' : ''}>免费用户</option>
+                            <option value="paid" style="background:#1a1d2d; color:white;" ${user.role === 'paid' ? 'selected' : ''}>付费用户</option>
+                            <option value="admin" style="background:#1a1d2d; color:white;" ${user.role === 'admin' ? 'selected' : ''}>管理员</option>
                         </select>
                     </div>
                     <div>
@@ -918,6 +968,25 @@ ADMIN_HTML = """
             } else {
                 const data = await res.json();
                 alert(data.detail || '保存失败');
+            }
+        }
+        
+        async function deleteUser(userId, userInfo) {
+            if (!confirm(`确定要删除用户 ${userInfo} 吗？此操作不可恢复！`)) {
+                return;
+            }
+            
+            const res = await api(`/admin/users/${userId}`, {
+                method: 'DELETE',
+            });
+            
+            if (res.ok) {
+                loadUsers();
+                loadStats();
+                alert('用户已删除');
+            } else {
+                const data = await res.json();
+                alert(data.detail || '删除失败');
             }
         }
         
