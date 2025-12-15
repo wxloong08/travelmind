@@ -42,9 +42,7 @@ export function ChatWindow() {
       {/* 头部 */}
       <div className="h-16 border-b border-white/5 flex items-center px-4 lg:px-6 bg-white/2">
         <div className="flex items-center gap-3">
-          <div className="p-2 rounded-xl bg-gradient-to-tr from-blue-600 to-purple-600 shadow-lg shadow-blue-500/20">
-            <Navigation size={20} className="text-white" />
-          </div>
+          <img src="/favicon.png" alt="TravelMind" className="w-10 h-10 rounded-xl shadow-lg" />
           <div>
             <h1 className="text-lg font-bold text-white">TravelMind</h1>
             <p className="text-xs text-gray-400">AI 智能旅行管家</p>
@@ -84,11 +82,10 @@ export function ChatWindow() {
           />
           <button
             onClick={handleSend}
-            className={`p-2 rounded-xl transition-all duration-300 ${
-              input.trim()
+            className={`p-2 rounded-xl transition-all duration-300 ${input.trim()
                 ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30 scale-100'
                 : 'bg-gray-700 text-gray-500 scale-90'
-            }`}
+              }`}
           >
             <Send size={18} />
           </button>

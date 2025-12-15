@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     dashscope_api_key: str = Field(default="", description="通义千问 API Key【必须】")
     llm_model: str = "qwen3-max"  # Qwen3 系列最强模型
     llm_fallback_model: str = "qwen-plus"  # 基于 Qwen3 的 Plus 模型
-    llm_max_tokens: int = 4096
+    llm_max_tokens: int = 8192
     llm_temperature: float = 0.7
 
     # ===========================================================
