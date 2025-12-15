@@ -18,8 +18,10 @@ RUN npm install -g @amap/amap-maps-mcp-server
 # 复制依赖文件
 COPY pyproject.toml README.md ./
 
-# 安装 Python 依赖（完整版）
-RUN pip install --no-cache-dir --upgrade pip && \
+# 安装 Python 依赖（使用阿里云镜像加速）
+RUN pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/ && \
+    pip config set global.trusted-host mirrors.aliyun.com && \
+    pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir \
     # Web Framework
     fastapi>=0.115.0 \
