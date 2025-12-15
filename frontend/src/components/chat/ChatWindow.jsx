@@ -83,8 +83,8 @@ export function ChatWindow() {
           <button
             onClick={handleSend}
             className={`p-2 rounded-xl transition-all duration-300 ${input.trim()
-                ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30 scale-100'
-                : 'bg-gray-700 text-gray-500 scale-90'
+              ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30 scale-100'
+              : 'bg-gray-700 text-gray-500 scale-90'
               }`}
           >
             <Send size={18} />

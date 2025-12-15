@@ -184,9 +184,7 @@ function App() {
         {/* 聊天头部 */}
         <div className="h-16 border-b border-white/5 flex items-center justify-between px-4 lg:px-6 bg-white/2 backdrop-blur-md">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-purple-600 flex items-center justify-center shadow-lg shadow-blue-600/30">
-              <Navigation size={20} className="text-white" />
-            </div>
+            <img src="/favicon.png" alt="TravelMind" className="w-10 h-10 rounded-xl shadow-lg" />
             <div>
               <h1 className="font-bold text-white text-sm lg:text-base">TravelMind</h1>
               <p className="text-[10px] lg:text-xs text-gray-500">AI 智能旅行管家</p>
