@@ -151,6 +151,11 @@ class AgentState(TypedDict):
     regenerate: bool
     previous_itinerary: list[dict[str, Any]] | None
 
+    # 评估闭环支持
+    evaluation: dict[str, Any] | None  # 评估结果
+    evaluation_count: int  # 评估迭代次数
+    route_enriched: bool  # 路线是否已增强
+
 
 def create_initial_state(session_id: str | None = None) -> AgentState:
     """创建初始状态"""
@@ -178,4 +183,7 @@ def create_initial_state(session_id: str | None = None) -> AgentState:
         should_end=False,
         regenerate=False,
         previous_itinerary=None,
+        evaluation=None,
+        evaluation_count=0,
+        route_enriched=False,
     )

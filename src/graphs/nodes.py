@@ -1608,6 +1608,441 @@ async def respond_node(state: AgentState) -> dict[str, Any]:
 
 
 # ============================================================
+# 闭环评估节点
+# ============================================================
+
+# 评估阈值和迭代限制
+EVALUATION_THRESHOLD = 80  # 80分通过
+MAX_EVALUATION_ITERATIONS = 2  # 最多迭代2次
+
+EVALUATE_PROMPT = """你是一个专业的行程评估专家。请对以下行程进行评分和分析。
+
+## 行程数据
+{itinerary_json}
+
+## 用户需求
+- 目的地：{destination}
+- 天数：{days}天
+- 风格：{travel_style}
+- 必去：{must_visit}
+
+## 评分标准（每项 0-100 分）
+
+1. **时间合理性** (time_rationality) - 权重 25%
+   - 活动开始/结束时间是否合理（景点开放时间内）
+   - 交通时间是否充足（不要低估）
+   - 是否有赶场感（每天景点不超过4个）
+
+2. **区域连贯性** (route_coherence) - 权重 25%
+   - 同一天景点是否在同一区域（15km内）
+   - 是否存在来回折腾的情况
+   - 交通动线是否顺畅
+
+3. **覆盖完整性** (coverage) - 权重 20%
+   - 必去景点是否全部包含
+   - 行程是否充实但不过满
+   - 是否有遗漏的经典景点
+
+4. **预算匹配度** (budget_match) - 权重 15%
+   - 住宿价格是否符合预算
+   - 餐饮/门票价格是否合理
+
+5. **体验质量** (experience_quality) - 权重 15%
+   - 是否有美食安排
+   - 是否有休息时间（午休、晚上不要太晚）
+   - 整体节奏是否舒适
+
+请返回 JSON 格式：
+{{
+    "scores": {{
+        "time_rationality": 0-100,
+        "route_coherence": 0-100,
+        "coverage": 0-100,
+        "budget_match": 0-100,
+        "experience_quality": 0-100
+    }},
+    "weighted_score": 0-100,
+    "issues": [
+        {{
+            "dimension": "time_rationality|route_coherence|coverage|budget_match|experience_quality",
+            "problem": "具体问题描述",
+            "suggestion": "改进建议",
+            "severity": "high|medium|low"
+        }}
+    ],
+    "strengths": ["亮点1", "亮点2"],
+    "pass": true/false,
+    "summary": "整体评价（50字以内）"
+}}
+
+pass 规则：weighted_score >= {threshold} 且无 severity=high 的问题
+
+只返回纯 JSON！"""
+
+REFLECT_PROMPT = """你是一个行程优化专家。请根据评估反馈修改行程。
+
+## 当前行程
+{current_itinerary}
+
+## 评估反馈（需要修改的问题）
+{evaluation_issues}
+
+## 修改要求
+1. **只修改有问题的部分**，保留好的安排
+2. 针对每个 issue 进行具体修改
+3. 保持 JSON 格式完全一致
+4. 交通信息格式保持：{{"from": "上一地点", "method": "方式", "duration": "时间", "detail": "具体路线"}}
+
+请返回修改后的完整 itinerary JSON 数组（不需要 chat_response 等其他字段）。
+
+只返回纯 JSON 数组！"""
+
+
+async def _get_activity_location(
+    activity_title: str, 
+    city: str,
+    amap_client,
+) -> tuple[float, float] | None:
+    """
+    获取活动地点的坐标
+    
+    尝试通过地理编码获取坐标
+    """
+    if not activity_title or not city:
+        return None
+    
+    # 跳过通用活动
+    skip_keywords = ["酒店", "休息", "入住", "退房", "抵达", "出发", "返程"]
+    if any(kw in activity_title for kw in skip_keywords):
+        return None
+    
+    try:
+        location = await amap_client.geocode(activity_title, city)
+        if location:
+            logger.debug("Geocoded activity", title=activity_title, location=location)
+            return location
+    except Exception as e:
+        logger.warning("Geocode failed", title=activity_title, error=str(e))
+    
+    return None
+
+
+def _determine_transport_method(route_info) -> str:
+    """根据路线信息确定交通方式"""
+    if not route_info:
+        return "步行"
+    
+    distance = route_info.distance
+    if distance < 1000:
+        return "步行"
+    elif distance < 5000:
+        return "地铁/公交"
+    else:
+        return "地铁/打车"
+
+
+def _format_route_steps(steps: list) -> str:
+    """格式化路线步骤"""
+    if not steps:
+        return "按导航前往"
+    
+    formatted = []
+    for step in steps[:3]:  # 最多显示3步
+        instruction = step.get("instruction", "")
+        if instruction:
+            formatted.append(instruction)
+    
+    return " → ".join(formatted) if formatted else "按导航前往"
+
+
+async def route_enrichment_node(state: AgentState) -> dict[str, Any]:
+    """
+    路线增强节点
+    
+    为行程中的每个活动补充真实的交通信息（调用高德 API）
+    """
+    logger.info("Node: route_enrichment")
+    
+    travel_plan = state.get("travel_plan")
+    if not travel_plan or not travel_plan.get("itinerary"):
+        logger.info("No itinerary to enrich, skipping")
+        return {"next_action": "evaluate"}
+    
+    # 如果已经增强过，跳过
+    if state.get("route_enriched"):
+        logger.info("Routes already enriched, skipping")
+        return {"next_action": "evaluate"}
+    
+    from src.tools.amap import get_amap_client
+    
+    try:
+        amap = get_amap_client()
+    except Exception as e:
+        logger.warning("Amap client not available", error=str(e))
+        return {"next_action": "evaluate", "route_enriched": True}
+    
+    travel_pref = state.get("travel_preference", {})
+    destination = travel_pref.get("destination", "")
+    
+    enriched_itinerary = []
+    total_enriched = 0
+    
+    import asyncio
+    
+    for day in travel_plan["itinerary"]:
+        enriched_day = {**day, "activities": []}
+        activities = day.get("activities", [])
+        
+        prev_location = None
+        prev_title = "酒店"
+        
+        for i, activity in enumerate(activities):
+            enriched_activity = {**activity}
+            
+            # 获取当前活动的坐标
+            current_location = await _get_activity_location(
+                activity.get("title", ""), destination, amap
+            )
+            
+            # 如果有上一个位置，计算真实路线
+            if prev_location and current_location and prev_location != current_location:
+                try:
+                    await asyncio.sleep(0.3)  # API 限流
+                    
+                    route_info = await amap.route_planning(
+                        origin=prev_location,
+                        destination=current_location,
+                        mode="transit"  # 默认公共交通
+                    )
+                    
+                    if route_info:
+                        enriched_activity["transport_from_prev"] = {
+                            "from": prev_title,
+                            "method": _determine_transport_method(route_info),
+                            "duration": f"约{max(1, route_info.duration // 60)}分钟",
+                            "distance": f"{route_info.distance / 1000:.1f}公里",
+                            "detail": _format_route_steps(route_info.steps),
+                            "verified": True,
+                        }
+                        total_enriched += 1
+                        logger.debug(
+                            "Route enriched",
+                            from_=prev_title,
+                            to=activity.get("title"),
+                            duration=route_info.duration // 60,
+                        )
+                except Exception as e:
+                    logger.warning(
+                        "Route planning failed",
+                        from_=prev_title,
+                        to=activity.get("title"),
+                        error=str(e),
+                    )
+            
+            enriched_day["activities"].append(enriched_activity)
+            
+            # 更新上一个位置
+            if current_location:
+                prev_location = current_location
+                prev_title = activity.get("title", "上一地点")
+        
+        enriched_itinerary.append(enriched_day)
+    
+    logger.info("Route enrichment completed", total_enriched=total_enriched)
+    
+    return {
+        "travel_plan": {
+            **travel_plan,
+            "itinerary": enriched_itinerary,
+        },
+        "route_enriched": True,
+        "next_action": "evaluate",
+    }
+
+
+async def evaluate_node(state: AgentState) -> dict[str, Any]:
+    """
+    评估节点 (LLM as Judge)
+    
+    对生成的行程进行多维度评分，低于阈值触发反思优化
+    """
+    logger.info("Node: evaluate")
+    
+    travel_plan = state.get("travel_plan")
+    if not travel_plan or not travel_plan.get("itinerary"):
+        logger.info("No itinerary to evaluate, skipping to respond")
+        return {"next_action": "respond", "evaluation": None}
+    
+    llm = get_llm()
+    travel_pref = state.get("travel_preference", {})
+    
+    # 构建评估 prompt
+    prompt = EVALUATE_PROMPT.format(
+        itinerary_json=json.dumps(travel_plan["itinerary"], ensure_ascii=False, indent=2),
+        destination=travel_pref.get("destination", "未知"),
+        days=travel_pref.get("days", 3),
+        travel_style=travel_pref.get("travel_style", "休闲"),
+        must_visit=json.dumps(travel_pref.get("must_visit_places", []), ensure_ascii=False),
+        threshold=EVALUATION_THRESHOLD,
+    )
+    
+    try:
+        response = await llm.chat([Message(role="user", content=prompt)])
+        
+        # 解析 JSON 响应
+        content = response.content.strip()
+        # 移除可能的 markdown 代码块
+        if content.startswith("```"):
+            content = content.split("```")[1]
+            if content.startswith("json"):
+                content = content[4:]
+        content = content.strip()
+        
+        evaluation = json.loads(content)
+    except json.JSONDecodeError as e:
+        logger.warning("Failed to parse evaluation JSON", error=str(e))
+        evaluation = {
+            "scores": {},
+            "weighted_score": 85,
+            "issues": [],
+            "strengths": [],
+            "pass": True,
+            "summary": "评估解析失败，默认通过",
+        }
+    except Exception as e:
+        logger.error("Evaluation failed", error=str(e))
+        evaluation = {
+            "scores": {},
+            "weighted_score": 85,
+            "issues": [],
+            "strengths": [],
+            "pass": True,
+            "summary": f"评估异常: {str(e)}",
+        }
+    
+    # 记录评估次数
+    eval_count = state.get("evaluation_count", 0) + 1
+    
+    # 决定下一步
+    passed = evaluation.get("pass", True)
+    score = evaluation.get("weighted_score", 100)
+    has_high_severity = any(
+        issue.get("severity") == "high" 
+        for issue in evaluation.get("issues", [])
+    )
+    
+    # 通过条件：分数达标 且 无高严重性问题
+    # 或者：已达到最大迭代次数
+    if (score >= EVALUATION_THRESHOLD and not has_high_severity) or eval_count >= MAX_EVALUATION_ITERATIONS:
+        next_action = "respond"
+        if eval_count >= MAX_EVALUATION_ITERATIONS and score < EVALUATION_THRESHOLD:
+            logger.warning(
+                "Max iterations reached, forcing pass",
+                score=score,
+                iterations=eval_count,
+            )
+    else:
+        next_action = "reflect"
+    
+    logger.info(
+        "Evaluation completed",
+        score=score,
+        passed=passed,
+        has_high_severity=has_high_severity,
+        issues_count=len(evaluation.get("issues", [])),
+        iteration=eval_count,
+        next_action=next_action,
+    )
+    
+    # 将评估结果存入 travel_plan 以便前端显示
+    travel_plan["evaluation"] = {
+        "score": score,
+        "passed": next_action == "respond",
+        "iteration": eval_count,
+        "summary": evaluation.get("summary", ""),
+        "strengths": evaluation.get("strengths", []),
+    }
+    
+    return {
+        "evaluation": evaluation,
+        "evaluation_count": eval_count,
+        "travel_plan": travel_plan,
+        "next_action": next_action,
+    }
+
+
+async def reflect_node(state: AgentState) -> dict[str, Any]:
+    """
+    反思优化节点
+    
+    根据评估反馈针对性修改行程
+    """
+    logger.info("Node: reflect")
+    
+    travel_plan = state.get("travel_plan")
+    evaluation = state.get("evaluation", {})
+    
+    if not travel_plan or not evaluation.get("issues"):
+        logger.info("No issues to reflect on, continuing to evaluate")
+        return {"next_action": "evaluate"}
+    
+    llm = get_llm()
+    
+    # 只传递需要修改的问题
+    issues_to_fix = [
+        issue for issue in evaluation.get("issues", [])
+        if issue.get("severity") in ["high", "medium"]
+    ]
+    
+    if not issues_to_fix:
+        logger.info("No high/medium severity issues, continuing to respond")
+        return {"next_action": "respond"}
+    
+    prompt = REFLECT_PROMPT.format(
+        current_itinerary=json.dumps(travel_plan["itinerary"], ensure_ascii=False, indent=2),
+        evaluation_issues=json.dumps(issues_to_fix, ensure_ascii=False, indent=2),
+    )
+    
+    try:
+        response = await llm.chat([Message(role="user", content=prompt)])
+        
+        # 解析修改后的行程
+        content = response.content.strip()
+        if content.startswith("```"):
+            content = content.split("```")[1]
+            if content.startswith("json"):
+                content = content[4:]
+        content = content.strip()
+        
+        improved_itinerary = json.loads(content)
+        
+        # 验证格式
+        if isinstance(improved_itinerary, list) and len(improved_itinerary) > 0:
+            travel_plan["itinerary"] = improved_itinerary
+            travel_plan["reflection_applied"] = True
+            travel_plan["reflection_count"] = travel_plan.get("reflection_count", 0) + 1
+            logger.info(
+                "Reflection applied successfully",
+                days_count=len(improved_itinerary),
+                reflection_count=travel_plan["reflection_count"],
+            )
+        else:
+            logger.warning("Invalid reflection output format, keeping original")
+            
+    except json.JSONDecodeError as e:
+        logger.warning("Failed to parse reflection JSON", error=str(e))
+    except Exception as e:
+        logger.error("Reflection failed", error=str(e))
+    
+    # 反思后需要重新验证路线
+    return {
+        "travel_plan": travel_plan,
+        "route_enriched": False,  # 重置，需要重新增强
+        "next_action": "route_enrich",
+    }
+
+
+# ============================================================
 # 路由函数
 # ============================================================
 

@@ -1,7 +1,7 @@
 """
 LangGraph 旅游规划工作流
 
-定义完整的 Agent 工作流图
+定义完整的 Agent 工作流图（含 Evaluator 闭环）
 """
 
 from typing import Any
@@ -19,6 +19,10 @@ from src.graphs.nodes import (
     route_after_research,
     route_after_understand,
     understand_intent_node,
+    # 新增闭环节点
+    route_enrichment_node,
+    evaluate_node,
+    reflect_node,
 )
 from src.graphs.state import AgentState, create_initial_state
 
@@ -27,7 +31,7 @@ logger = structlog.get_logger()
 
 def create_travel_graph() -> StateGraph:
     """
-    创建旅游规划工作流图
+    创建旅游规划工作流图（含 Evaluator 闭环）
 
     工作流结构：
     START -> understand_intent -> [research | respond]
@@ -36,7 +40,17 @@ def create_travel_graph() -> StateGraph:
                                  planning
                                      |
                                      v
-                                  respond -> END
+                              route_enrichment
+                                     |
+                                     v
+                                 evaluate
+                                /        \
+                    (score < 80)          (score >= 80)
+                               v                v
+                           reflect          respond -> END
+                               |
+                               v
+                        route_enrichment (loop)
     """
     # 创建状态图
     workflow = StateGraph(AgentState)
@@ -45,6 +59,9 @@ def create_travel_graph() -> StateGraph:
     workflow.add_node("understand_intent", understand_intent_node)
     workflow.add_node("research", research_node)
     workflow.add_node("planning", planning_node)
+    workflow.add_node("route_enrich", route_enrichment_node)  # 新增
+    workflow.add_node("evaluate", evaluate_node)              # 新增
+    workflow.add_node("reflect", reflect_node)                # 新增
     workflow.add_node("respond", respond_node)
 
     # 设置入口点
@@ -69,8 +86,24 @@ def create_travel_graph() -> StateGraph:
         },
     )
 
-    # 规划完成后进入响应
-    workflow.add_edge("planning", "respond")
+    # 规划完成后进入路线增强
+    workflow.add_edge("planning", "route_enrich")
+    
+    # 路线增强后进入评估
+    workflow.add_edge("route_enrich", "evaluate")
+    
+    # 评估后根据结果决定下一步
+    workflow.add_conditional_edges(
+        "evaluate",
+        lambda state: state.get("next_action", "respond"),
+        {
+            "reflect": "reflect",
+            "respond": "respond",
+        },
+    )
+    
+    # 反思后重新进入路线增强（闭环）
+    workflow.add_edge("reflect", "route_enrich")
 
     # 响应后结束
     workflow.add_edge("respond", END)
