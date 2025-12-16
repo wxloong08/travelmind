@@ -1708,13 +1708,27 @@ async def _get_activity_location(
     
     尝试通过地理编码获取坐标
     """
+    import asyncio
+    
     if not activity_title or not city:
         return None
     
-    # 跳过通用活动
-    skip_keywords = ["酒店", "休息", "入住", "退房", "抵达", "出发", "返程"]
+    # 扩展跳过关键词：这些活动不是具体地点，不需要地理编码
+    skip_keywords = [
+        # 住宿相关
+        "酒店", "休息", "入住", "退房", "抵达", "出发", "返程",
+        # 餐饮相关（无具体地点）
+        "午餐", "晚餐", "早餐", "用餐", "小吃",
+        # 交通相关
+        "前往机场", "前往车站", "游览大巴",
+        # 其他通用
+        "自由活动", "自由时间", "补充购物",
+    ]
     if any(kw in activity_title for kw in skip_keywords):
         return None
+    
+    # 请求前添加延迟，适配 QPS=3 限制
+    await asyncio.sleep(0.35)
     
     try:
         location = await amap_client.geocode(activity_title, city)
@@ -1722,7 +1736,19 @@ async def _get_activity_location(
             logger.debug("Geocoded activity", title=activity_title, location=location)
             return location
     except Exception as e:
-        logger.warning("Geocode failed", title=activity_title, error=str(e))
+        error_str = str(e)
+        # 限流错误，等待后重试一次
+        if "CUQPS_HAS_EXCEEDED_THE_LIMIT" in error_str:
+            logger.warning("Rate limited, retrying after delay", title=activity_title)
+            await asyncio.sleep(1.0)
+            try:
+                location = await amap_client.geocode(activity_title, city)
+                if location:
+                    return location
+            except Exception:
+                pass
+        else:
+            logger.warning("Geocode failed", title=activity_title, error=error_str)
     
     return None
 
