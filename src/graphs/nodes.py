@@ -1804,6 +1804,32 @@ async def route_enrichment_node(state: AgentState) -> dict[str, Any]:
                 activity.get("title", ""), destination, amap
             )
             
+            # ====== 关键修复：存储坐标到 activity.location ======
+            if current_location:
+                # 成功获取坐标，存入 activity
+                enriched_activity["location"] = {
+                    "lng": current_location[0],
+                    "lat": current_location[1],
+                }
+                logger.debug(
+                    "Activity location set",
+                    title=activity.get("title"),
+                    location=current_location,
+                )
+            elif prev_location:
+                # 无法获取坐标（如"午餐"、"返回酒店"），继承上一个景点的坐标
+                # 这样地图标记会聚集在景点附近，而不是分散到城市各处
+                enriched_activity["location"] = {
+                    "lng": prev_location[0],
+                    "lat": prev_location[1],
+                }
+                logger.debug(
+                    "Activity inherits previous location",
+                    title=activity.get("title"),
+                    inherited_from=prev_title,
+                )
+            # ====== 修复结束 ======
+            
             # 如果有上一个位置，计算真实路线
             if prev_location and current_location and prev_location != current_location:
                 try:
@@ -1841,10 +1867,31 @@ async def route_enrichment_node(state: AgentState) -> dict[str, Any]:
             
             enriched_day["activities"].append(enriched_activity)
             
-            # 更新上一个位置
+            # 更新上一个位置（只有成功获取的坐标才更新，避免继承链断裂）
             if current_location:
                 prev_location = current_location
                 prev_title = activity.get("title", "上一地点")
+        
+        # ====== 为住宿添加坐标 ======
+        accommodation = enriched_day.get("accommodation")
+        if accommodation and not accommodation.get("location"):
+            hotel_name = accommodation.get("name", "")
+            if hotel_name:
+                hotel_location = await _get_activity_location(hotel_name, destination, amap)
+                if hotel_location:
+                    enriched_day["accommodation"]["location"] = {
+                        "lng": hotel_location[0],
+                        "lat": hotel_location[1],
+                    }
+                    logger.debug("Hotel location set", name=hotel_name, location=hotel_location)
+                elif prev_location:
+                    # 无法查到酒店坐标，使用当天最后一个景点坐标
+                    enriched_day["accommodation"]["location"] = {
+                        "lng": prev_location[0],
+                        "lat": prev_location[1],
+                    }
+                    logger.debug("Hotel inherits last activity location", name=hotel_name)
+        # ====== 住宿坐标结束 ======
         
         enriched_itinerary.append(enriched_day)
     
