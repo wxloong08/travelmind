@@ -1723,15 +1723,26 @@ async def _get_activity_location(
         "前往机场", "前往车站", "游览大巴",
         # 其他通用
         "自由活动", "自由时间", "补充购物",
+        # 自然现象（不是具体地点）
+        "日照金山", "星空", "日出", "日落",
     ]
     if any(kw in activity_title for kw in skip_keywords):
         return None
+    
+    # 清理活动标题，提取真实地名
+    clean_title = activity_title
+    # 移除常见前缀
+    prefixes_to_remove = ["前往", "游览", "参观", "探访", "打卡", "抵达"]
+    for prefix in prefixes_to_remove:
+        if clean_title.startswith(prefix):
+            clean_title = clean_title[len(prefix):]
+            break
     
     # 请求前添加延迟，适配 QPS=3 限制
     await asyncio.sleep(0.35)
     
     try:
-        location = await amap_client.geocode(activity_title, city)
+        location = await amap_client.geocode(clean_title, city)
         if location:
             logger.debug("Geocoded activity", title=activity_title, location=location)
             return location
@@ -1742,7 +1753,7 @@ async def _get_activity_location(
             logger.warning("Rate limited, retrying after delay", title=activity_title)
             await asyncio.sleep(1.0)
             try:
-                location = await amap_client.geocode(activity_title, city)
+                location = await amap_client.geocode(clean_title, city)
                 if location:
                     return location
             except Exception:
