@@ -235,7 +235,7 @@ export function useStreamChat() {
           addMessage({ role: 'user', content: message, isStreaming: false });
 
           // 显示友好提示
-          const loadingMessage = `✨ 找到您之前规划的${tripParams.destination}${tripParams.days}天行程！正在为您加载...`;
+          const loadingMessage = `🎉 太棒了！我已经为您规划好了${tripParams.destination}的${tripParams.days}天行程，快来看看吧！`;
           addMessage({ role: 'ai', content: '', isStreaming: true });
 
           // 打字机效果显示提示
@@ -288,6 +288,20 @@ export function useStreamChat() {
     // 添加用户消息
     addMessage({ role: 'user', content: message, isStreaming: false });
     setIsTyping(true);
+
+    // ========== 清空旧的侧边栏数据（检测新规划请求）==========
+    // 检测是否是新的旅行规划请求（通过关键词或 tripParams）
+    const travelPlanningKeywords = ['规划', '旅游', '行程', '攻略', '玩', '天游', '晚游', '自由行', '亲子游', '去'];
+    const isTravelPlanning = tripParams || travelPlanningKeywords.some(kw => message.includes(kw));
+
+    if (isTravelPlanning) {
+      // 清空侧边栏旧数据，避免显示上一次目的地的信息
+      setWeather(null);
+      setPois([]);
+      setItinerary([]);  // 也清空行程
+      setDestination(''); // 清空目的地
+      console.log('[useStreamChat] 检测到新规划请求，清空侧边栏数据');
+    }
 
     // 添加空的 AI 消息（用于流式填充）
     addMessage({ role: 'ai', content: '', isStreaming: true });

@@ -12,6 +12,7 @@ from src.tools.definitions import (
     web_search,
 )
 from src.tools.search import BochaClient, SearchResult, get_bocha_client
+from src.tools.rate_limiter import get_amap_limiter, with_rate_limit
 
 __all__ = [
     # 高德地图
@@ -20,6 +21,9 @@ __all__ = [
     "POIType",
     "RouteInfo",
     "get_amap_client",
+    # 限流器
+    "get_amap_limiter",
+    "with_rate_limit",
     # 博查搜索
     "BochaClient",
     "SearchResult",
@@ -34,3 +38,4 @@ __all__ = [
     "web_search",
     "news_search",
 ]
+

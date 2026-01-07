@@ -233,6 +233,40 @@ curl -X POST "http://localhost:8000/api/v1/auth/activate" \
   -d '{"code": "TRVL-XXXX-XXXX-XXXX"}'
 ```
 
+## 🏗️ 系统架构
+
+### POI-Based 工作流
+
+```mermaid
+graph TD
+    A[用户输入] --> B[understand_intent]
+    B --> C[research_node]
+    
+    subgraph "Research Phase 并行"
+        C --> D1[搜索景点 POI<br/>带坐标]
+        C --> D2[搜索酒店 POI<br/>带坐标]
+        C --> D3[搜索餐厅 POI<br/>带坐标]
+        C --> D4[获取天气]
+        C --> D5[推断交通枢纽<br/>机场/车站坐标]
+    end
+    
+    D1 & D2 & D3 & D4 & D5 --> E[构建 POI 距离矩阵]
+    E --> F[planning_node<br/>LLM 从 POI 池选择]
+    F --> G[本地距离验证<br/>Haversine]
+    G -->|通过| H[respond]
+    G -->|超标| I[智能调整]
+    I --> F
+```
+
+### 核心设计原则
+
+| 原则 | 说明 |
+|-----|------|
+| **POI 选择制** | LLM 从 POI 池中选择，而非自由生成文本 |
+| **坐标前置** | Research 阶段并行获取所有 POI 坐标 |
+| **本地验证** | 距离检查使用 Haversine 公式，减少 API 调用 |
+| **Default & Refine** | 智能默认值 + 用户可调整 |
+
 ## 📁 项目结构
 
 ```
@@ -253,6 +287,21 @@ travelmind/
 │   │   ├── knowledge_service.py  # RAG 知识库
 │   │   └── trip_service.py       # 行程服务
 │   ├── graphs/           # LangGraph 工作流
+│   │   ├── nodes/        # 节点模块（模块化）
+│   │   │   ├── intent.py     # 意图理解节点
+│   │   │   ├── research.py   # 信息收集节点
+│   │   │   ├── planning.py   # 行程规划节点
+│   │   │   ├── respond.py    # 响应生成节点
+│   │   │   ├── evaluate.py   # 评估检查节点
+│   │   │   └── reflect.py    # 反思优化节点
+│   │   ├── poi/          # POI 模块
+│   │   │   ├── models.py     # EnhancedPOI 数据结构
+│   │   │   └── validator.py  # 距离验证器
+│   │   ├── utils/        # 工具函数
+│   │   │   ├── prompts.py    # Prompt 模板
+│   │   │   └── parsers.py    # 解析函数
+│   │   ├── state.py      # AgentState 定义
+│   │   └── travel_graph.py   # 工作流图定义
 │   ├── rag/              # RAG 向量检索
 │   ├── tools/            # Agent 工具
 │   └── main.py           # FastAPI 入口

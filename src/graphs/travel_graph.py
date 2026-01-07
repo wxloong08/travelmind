@@ -1,7 +1,7 @@
 """
 LangGraph 旅游规划工作流
 
-定义完整的 Agent 工作流图（含 Evaluator 闭环）
+定义完整的 Agent 工作流图（混合架构：Rule + LLM 评估）
 """
 
 from typing import Any
@@ -19,9 +19,10 @@ from src.graphs.nodes import (
     route_after_research,
     route_after_understand,
     understand_intent_node,
-    # 新增闭环节点
+    # 路线增强 + 闭环评估节点
     route_enrichment_node,
-    evaluate_node,
+    rule_check_node,     # 新增：规则检查
+    llm_score_node,      # 重命名：LLM 评分（原 evaluate_node）
     reflect_node,
 )
 from src.graphs.state import AgentState, create_initial_state
@@ -31,7 +32,7 @@ logger = structlog.get_logger()
 
 def create_travel_graph() -> StateGraph:
     """
-    创建旅游规划工作流图（含 Evaluator 闭环）
+    创建旅游规划工作流图（混合架构：Rule + LLM 评估）
 
     工作流结构：
     START -> understand_intent -> [research | respond]
@@ -43,14 +44,15 @@ def create_travel_graph() -> StateGraph:
                               route_enrichment
                                      |
                                      v
-                                 evaluate
-                                /        \
-                    (score < 80)          (score >= 80)
-                               v                v
-                           reflect          respond -> END
-                               |
-                               v
-                        route_enrichment (loop)
+                               rule_check (硬约束)
+                              /            \
+                    (FAIL) reflect    (PASS) llm_score (软质量)
+                         |                  /        \
+                         v           (FAIL) reflect   (PASS) respond -> END
+                   route_enrichment         |
+                         ^                  v
+                         |            route_enrichment
+                         +------------------+
     """
     # 创建状态图
     workflow = StateGraph(AgentState)
@@ -59,9 +61,10 @@ def create_travel_graph() -> StateGraph:
     workflow.add_node("understand_intent", understand_intent_node)
     workflow.add_node("research", research_node)
     workflow.add_node("planning", planning_node)
-    workflow.add_node("route_enrich", route_enrichment_node)  # 新增
-    workflow.add_node("evaluate", evaluate_node)              # 新增
-    workflow.add_node("reflect", reflect_node)                # 新增
+    workflow.add_node("route_enrich", route_enrichment_node)
+    workflow.add_node("rule_check", rule_check_node)      # 新增：硬约束检查
+    workflow.add_node("llm_score", llm_score_node)        # 重命名：软质量评分
+    workflow.add_node("reflect", reflect_node)
     workflow.add_node("respond", respond_node)
 
     # 设置入口点
@@ -89,12 +92,22 @@ def create_travel_graph() -> StateGraph:
     # 规划完成后进入路线增强
     workflow.add_edge("planning", "route_enrich")
     
-    # 路线增强后进入评估
-    workflow.add_edge("route_enrich", "evaluate")
+    # 路线增强后进入规则检查（硬约束）
+    workflow.add_edge("route_enrich", "rule_check")
     
-    # 评估后根据结果决定下一步
+    # 规则检查后：不通过→reflect，通过→llm_score
     workflow.add_conditional_edges(
-        "evaluate",
+        "rule_check",
+        lambda state: state.get("next_action", "llm_score"),
+        {
+            "reflect": "reflect",
+            "llm_score": "llm_score",
+        },
+    )
+    
+    # LLM 评分后：不通过→reflect，通过→respond
+    workflow.add_conditional_edges(
+        "llm_score",
         lambda state: state.get("next_action", "respond"),
         {
             "reflect": "reflect",
@@ -285,16 +298,31 @@ async def stream_travel_agent(
                     final_state = {**final_state, **node_output}
                 
                 # 从 respond 节点提取 AI 响应
-                if node_name == "respond" and node_output.get("messages"):
-                    for msg in node_output["messages"]:
-                        if hasattr(msg, "content"):
-                            ai_response = msg.content
-                            logger.info("AI response extracted", content_length=len(ai_response))
+                if node_name == "respond":
+                    # respond_node 返回 travel_plan，其中 chat_response 包含回复
+                    travel_plan = node_output.get("travel_plan", {})
+                    if isinstance(travel_plan, dict):
+                        chat_response = travel_plan.get("chat_response", "")
+                        if chat_response:
+                            ai_response = chat_response
+                            logger.info("AI response extracted from travel_plan", content_length=len(ai_response))
                             # 发送完整内容作为一个 token 事件
                             yield {
                                 "type": "token",
                                 "content": ai_response,
                             }
+                    
+                    # 兼容：也检查 messages 字段（旧格式）
+                    if not ai_response and node_output.get("messages"):
+                        for msg in node_output["messages"]:
+                            if hasattr(msg, "content"):
+                                ai_response = msg.content
+                                logger.info("AI response extracted from messages", content_length=len(ai_response))
+                                yield {
+                                    "type": "token",
+                                    "content": ai_response,
+                                }
+                                break
                             
     except Exception as e:
         # 关键修复：捕获并记录工作流执行中的异常

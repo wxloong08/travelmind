@@ -1,0 +1,322 @@
+"""
+行程规划节点（POI 选择模式）
+
+LLM 从 POI 池中选择景点 ID，而非自由生成文本
+"""
+
+import json
+from datetime import datetime
+from typing import Any
+
+import structlog
+
+from src.graphs.state import AgentState, PlanningPhase, TaskType
+from src.graphs.utils.parsers import parse_trip_duration
+from src.graphs.poi.models import POIDistanceMatrix
+from src.graphs.poi.validator import validate_itinerary_distances
+from src.llm import Message
+from src.llm.qwen import get_llm
+
+logger = structlog.get_logger()
+
+
+def _build_poi_table(poi_pool: dict[str, dict]) -> str:
+    """构建 POI 表格供 LLM 参考"""
+    if not poi_pool:
+        return "暂无 POI 数据"
+    
+    lines = ["| ID | 名称 | 类别 | 区域 | 评分 | 价格 |"]
+    lines.append("|-----|------|------|------|------|------|")
+    
+    for poi_id, poi in poi_pool.items():
+        name = poi.get("name", "")[:15]
+        category = poi.get("category", "")
+        district = poi.get("district", "-")[:8] if poi.get("district") else "-"
+        rating = f"{poi.get('rating', '-')}" if poi.get("rating") else "-"
+        price = f"¥{poi.get('price')}" if poi.get("price") else "-"
+        lines.append(f"| {poi_id[:20]} | {name} | {category} | {district} | {rating} | {price} |")
+    
+    return "\n".join(lines)
+
+
+def _build_distance_snippet(distance_matrix: dict, limit: int = 20) -> str:
+    """构建距离矩阵摘要"""
+    if not distance_matrix or not distance_matrix.get("pois"):
+        return "暂无距离数据"
+    
+    pois = distance_matrix.get("pois", {})
+    cache = distance_matrix.get("cache", {})
+    
+    lines = ["部分 POI 间距离（公里）:"]
+    count = 0
+    
+    for key, dist in list(cache.items())[:limit]:
+        if "|" in key:
+            id1, id2 = key.split("|")
+            name1 = pois.get(id1, {}).get("name", id1)[:10]
+            name2 = pois.get(id2, {}).get("name", id2)[:10]
+            lines.append(f"- {name1} → {name2}: {dist:.1f}km")
+            count += 1
+    
+    if count == 0:
+        return "距离数据正在计算中..."
+    
+    return "\n".join(lines)
+
+
+async def planning_node(state: AgentState) -> dict[str, Any]:
+    """
+    行程规划节点（POI 选择模式）
+
+    LLM 从 POI 池中选择，确保每个活动都有真实坐标
+    """
+    logger.info("Node: planning (POI-based)")
+
+    task_type = state.get("task_type")
+    if task_type != TaskType.TRAVEL_PLANNING.value:
+        return {"next_action": "respond"}
+
+    llm = get_llm()
+
+    # 获取 POI 池和距离矩阵
+    poi_pool = state.get("poi_pool", {})
+    distance_matrix = state.get("distance_matrix", {})
+    arrival_hub = state.get("arrival_hub")
+    weather_info = state.get("weather_info")
+    
+    travel_pref = state.get("travel_preference") or {}
+    destination = travel_pref.get("destination", "未知目的地")
+    travel_style = travel_pref.get("travel_style", "自由行")
+    must_visit_places = travel_pref.get("must_visit_places", [])
+    days = travel_pref.get("days", 3)
+    budget_level = travel_pref.get("budget_level", "moderate")
+    guide_context = travel_pref.get("guide_context", "")
+
+    # 解析行程时长
+    user_message = state.get("messages", [])[-1].content if state.get("messages") else ""
+    trip_duration = parse_trip_duration(user_message)
+    user_days = trip_duration["user_days"]
+    user_nights = trip_duration["user_nights"]
+    actual_days = trip_duration["actual_days"]
+    actual_nights = trip_duration["actual_nights"]
+
+    # 构建 POI 表格
+    poi_table = _build_poi_table(poi_pool)
+    distance_snippet = _build_distance_snippet(distance_matrix)
+
+    # 必去景点强调
+    must_visit_text = ""
+    if must_visit_places:
+        must_visit_text = f"""
+## ⭐ 用户必去地点
+{json.dumps(must_visit_places, ensure_ascii=False)}
+请确保这些地点出现在行程中！
+"""
+
+    # ========== POI 选择模式 Prompt ==========
+    planning_prompt = f"""你是专业旅游规划师。请从下方 POI 池中**选择**景点组合成行程。
+
+## 核心规则
+1. **只能从 POI 池中选择**：每个活动必须使用池中的 poi_id
+2. **同一天距离 < 30km**：参考距离表，避免跨区
+3. **每天 2-3 个主要景点**：不要走马观花
+
+## 用户需求
+- 目的地: {destination}
+- 行程: {user_days}天{user_nights}晚（实际 {actual_days} 天含抵达日）
+- 风格: {travel_style}
+- 预算: {budget_level}
+{must_visit_text}
+
+## POI 池（请从中选择）
+{poi_table}
+
+## 距离参考
+{distance_snippet}
+
+## 天气
+{json.dumps(weather_info, ensure_ascii=False, indent=2) if weather_info else "暂无"}
+
+## 攻略参考
+{guide_context[:2000] if guide_context else "暂无攻略，请根据常识规划"}
+
+---
+
+请返回纯 JSON（不要 markdown）：
+{{
+    "chat_response": "友好回复（200字），介绍行程亮点",
+    "itinerary": [
+        {{
+            "day": 0,
+            "title": "抵达{destination}",
+            "activities": [
+                {{
+                    "poi_id": "arrival_hub",
+                    "time": "14:00",
+                    "title": "抵达{destination}",
+                    "type": "transport",
+                    "desc": "根据航班/高铁抵达"
+                }},
+                {{
+                    "poi_id": "HOTEL_ID_FROM_POOL",
+                    "time": "16:00",
+                    "title": "入住酒店",
+                    "type": "hotel",
+                    "desc": "办理入住"
+                }}
+            ],
+            "accommodation": {{
+                "poi_id": "HOTEL_ID_FROM_POOL",
+                "name": "酒店名",
+                "price": "¥300/晚",
+                "reason": "靠近明日行程起点"
+            }}
+        }},
+        {{
+            "day": 1,
+            "title": "Day 1 主题",
+            "activities": [
+                {{
+                    "poi_id": "ATTRACTION_ID_1",
+                    "time": "09:00",
+                    "title": "景点1名称",
+                    "type": "attraction",
+                    "desc": "游玩描述"
+                }}
+            ],
+            "accommodation": {{...}}
+        }}
+    ]
+}}
+
+⚠️ 重要：
+- 每个活动的 poi_id 必须是 POI 池中存在的 ID
+- 午餐/晚餐使用附近餐厅的 poi_id
+- 如果 POI 池中没有合适的，可以用 "generic_meal" 或 "generic_rest" 表示通用活动
+
+只返回 JSON！"""
+
+    # 重新生成逻辑
+    regenerate = state.get("regenerate", False)
+    previous_itinerary = state.get("previous_itinerary")
+    
+    if regenerate and previous_itinerary:
+        prev_summary = []
+        for day in previous_itinerary[:5]:
+            day_num = day.get("day", "?")
+            activities = day.get("activities", [])
+            activity_names = [a.get("title", "")[:15] for a in activities[:3]]
+            prev_summary.append(f"Day {day_num}: {', '.join(activity_names)}")
+        
+        planning_prompt += f"""
+
+## 🔄 重新生成
+用户请求不同版本，上一版：
+{chr(10).join(prev_summary)}
+
+请尝试：调整景点顺序、替换 1-2 个景点、选择不同区域酒店"""
+
+    messages = [
+        Message(
+            role="system",
+            content="你是专业旅游规划师。严格按 JSON 输出，只使用 POI 池中的景点。"
+        ),
+        Message(role="user", content=planning_prompt),
+    ]
+
+    response = await llm.chat(messages)
+
+    # 解析响应
+    structured_plan = None
+    try:
+        content = response.content.strip()
+        if content.startswith("```"):
+            content = content.split("```")[1]
+            if content.startswith("json"):
+                content = content[4:]
+            content = content.strip()
+        structured_plan = json.loads(content)
+    except json.JSONDecodeError as e:
+        logger.warning("Failed to parse POI-based plan", error=str(e))
+        # 回退到 legacy planning
+        from src.graphs.nodes_legacy import planning_node as legacy_planning
+        return await legacy_planning(state)
+
+    # ========== 后处理：验证距离并填充坐标 ==========
+    itinerary = structured_plan.get("itinerary", [])
+    
+    # 为每个活动填充坐标
+    for day in itinerary:
+        for activity in day.get("activities", []):
+            poi_id = activity.get("poi_id")
+            if poi_id and poi_id in poi_pool:
+                poi_data = poi_pool[poi_id]
+                activity["location"] = {
+                    "lat": poi_data.get("lat"),
+                    "lng": poi_data.get("lng"),
+                }
+                # 如果没有 title，使用 POI 名称
+                if not activity.get("title"):
+                    activity["title"] = poi_data.get("name", "")
+        
+        # 填充住宿价格（从 POI 池中获取）
+        accommodation = day.get("accommodation")
+        if accommodation:
+            poi_id = accommodation.get("poi_id")
+            if poi_id and poi_id in poi_pool:
+                poi_data = poi_pool[poi_id]
+                # 如果没有价格，从 POI 数据中填充
+                if not accommodation.get("price") and poi_data.get("price"):
+                    accommodation["price"] = f"¥{poi_data['price']}/晚"
+                # 如果没有名称，从 POI 数据中填充
+                if not accommodation.get("name") and poi_data.get("name"):
+                    accommodation["name"] = poi_data["name"]
+            # 如果仍然没有价格，设置默认值
+            if not accommodation.get("price"):
+                # 根据预算等级设置默认价格
+                default_prices = {
+                    "budget": "¥150/晚",
+                    "moderate": "¥300/晚",
+                    "luxury": "¥800/晚",
+                }
+                accommodation["price"] = default_prices.get(budget_level, "¥300/晚")
+    
+    # 本地距离验证
+    violations = validate_itinerary_distances(itinerary, max_distance_km=50.0)
+    
+    if violations:
+        logger.warning("Distance violations detected", count=len(violations), violations=violations[:3])
+        # 可以选择触发反思，这里先记录
+        structured_plan["distance_warnings"] = violations
+
+    # 构建旅游计划
+    travel_plan = {
+        "destination": destination,
+        "generated_at": datetime.now().isoformat(),
+        "structured": True,
+        "poi_based": True,  # 标记为 POI 模式生成
+        "chat_response": structured_plan.get("chat_response", ""),
+        "itinerary": itinerary,
+        "content": structured_plan.get("chat_response", ""),
+        "budget_info": {
+            "level": budget_level,
+        },
+    }
+
+    updates = {
+        "travel_plan": travel_plan,
+        "planning_phase": PlanningPhase.PLAN_GENERATED.value,
+        "next_action": "route_enrich",
+        "updated_at": datetime.now().isoformat(),
+    }
+
+    logger.info(
+        "POI-based plan generated",
+        days=len(itinerary),
+        distance_violations=len(violations) if violations else 0,
+    )
+
+    return updates
+
+
+__all__ = ["planning_node"]

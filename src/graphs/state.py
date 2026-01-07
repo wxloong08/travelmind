@@ -30,6 +30,7 @@ class PlanningPhase(str, Enum):
     UNDERSTAND = "understand"  # 理解需求
     RESEARCH = "research"  # 信息收集
     PLANNING = "planning"  # 行程规划
+    PLAN_GENERATED = "plan_generated"  # 行程已生成
     REFINE = "refine"  # 优化调整
     COMPLETE = "complete"  # 完成
 
@@ -133,6 +134,11 @@ class AgentState(TypedDict):
     weather_info: dict[str, Any] | None
     search_results: list[dict[str, Any]]
 
+    # POI-Based 规划支持
+    poi_pool: dict[str, dict[str, Any]] | None  # POI ID -> EnhancedPOI.to_dict()
+    distance_matrix: dict[str, Any] | None  # 预计算的距离矩阵
+    arrival_hub: dict[str, Any] | None  # 抵达点（机场/火车站）
+
     # 生成的计划
     travel_plan: dict[str, Any] | None
 
@@ -152,9 +158,13 @@ class AgentState(TypedDict):
     previous_itinerary: list[dict[str, Any]] | None
 
     # 评估闭环支持
-    evaluation: dict[str, Any] | None  # 评估结果
+    evaluation: dict[str, Any] | None  # LLM 评估结果
     evaluation_count: int  # 评估迭代次数
     route_enriched: bool  # 路线是否已增强
+
+    # 规则检查支持（混合架构）
+    rule_check_result: dict[str, Any] | None  # 规则检查结果
+    reflect_reason: str | None  # 反思来源: "rule_violation" | "llm_score"
 
 
 def create_initial_state(session_id: str | None = None) -> AgentState:
@@ -175,6 +185,9 @@ def create_initial_state(session_id: str | None = None) -> AgentState:
         collected_pois=[],
         weather_info=None,
         search_results=[],
+        poi_pool=None,
+        distance_matrix=None,
+        arrival_hub=None,
         travel_plan=None,
         pending_tool_calls=[],
         tool_results=[],
@@ -186,4 +199,6 @@ def create_initial_state(session_id: str | None = None) -> AgentState:
         evaluation=None,
         evaluation_count=0,
         route_enriched=False,
+        rule_check_result=None,
+        reflect_reason=None,
     )

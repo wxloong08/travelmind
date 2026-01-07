@@ -33,6 +33,7 @@ RUN pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/ && \
     langchain-community>=0.3.0 \
     langchain-mcp-adapters \
     dashscope>=1.20.0 \
+    openai>=1.0.0 \
     # Vector Database
     chromadb>=0.5.0 \
     # HTTP

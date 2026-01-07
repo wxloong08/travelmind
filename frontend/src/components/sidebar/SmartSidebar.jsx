@@ -686,11 +686,16 @@ export function SmartSidebar({ isMobile, isDrawer, onClose, isCollapsed, onToggl
     };
 
     useEffect(() => {
-        // 当目的地变化或行程生成后，获取天气和资讯数据
+        // 当目的地变化时，清空旧数据并获取新数据
         if (destination && destination !== '未知目的地') {
+            // 先清空旧数据，再获取新数据
+            setSidebarInfo({ forecast: [], news: [] });
             fetchSidebarData();
+        } else {
+            // 目的地为空时清空侧边栏数据
+            setSidebarInfo({ forecast: [], news: [] });
         }
-    }, [destination, itinerary?.length > 0]);
+    }, [destination]); // 只依赖 destination 变化
 
     return (
         <div className={`flex flex-col gap-4 animate-fadeIn ${isMobile || isDrawer ? 'pb-20' : 'sticky top-4 h-[calc(100vh-8rem)] overflow-y-auto custom-scrollbar pr-2'}`}>

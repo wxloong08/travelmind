@@ -70,6 +70,13 @@ class Settings(BaseSettings):
     langfuse_host: str = ""  # 空则不启用
 
     # ===========================================================
+    # DeepSeek 评分模型【可选】- 独立评分不依赖主 LLM
+    # ===========================================================
+    deepseek_api_key: str = Field(default="", description="DeepSeek API Key")
+    deepseek_model: str = "deepseek-chat"
+    deepseek_temperature: float = 0.3  # 评分任务低温度更稳定
+
+    # ===========================================================
     # CORS 配置【可选】
     # ===========================================================
     cors_origins: list[str] = ["http://localhost:3000", "http://localhost:5173"]
@@ -170,6 +177,11 @@ class Settings(BaseSettings):
     def llm_configured(self) -> bool:
         """LLM 是否已配置"""
         return bool(self.dashscope_api_key)
+
+    @property
+    def deepseek_enabled(self) -> bool:
+        """DeepSeek 评分模型是否已配置"""
+        return bool(self.deepseek_api_key)
 
 
 @lru_cache
