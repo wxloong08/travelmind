@@ -114,12 +114,17 @@ async def planning_node(state: AgentState) -> dict[str, Any]:
 """
 
     # ========== POI 选择模式 Prompt ==========
-    planning_prompt = f"""你是专业旅游规划师。请从下方 POI 池中**选择**景点组合成行程。
+    planning_prompt = f"""你是专业旅游规划师。请从下方 POI 池中**选择**景点组合成合理的行程。
 
-## 核心规则
-1. **只能从 POI 池中选择**：每个活动必须使用池中的 poi_id
-2. **同一天距离 < 30km**：参考距离表，避免跨区
-3. **每天 2-3 个主要景点**：不要走马观花
+## ⚠️ 关键规则（必须遵守）
+1. **地理集中**：每天活动必须在同一区域（距离 < 15km），绝不跨区！
+2. **必须安排餐饮**：每天必须有午餐（12:00-13:00）和晚餐（18:00-19:00）
+3. **合理时间安排**：
+   - 景点游玩时间 2-3 小时
+   - 用餐时间 1 小时
+   - 每天行程不超过 8 小时（9:00-21:00）
+4. **只选核心热门景点**：优先选择评分高、知名度高的景点
+5. **避免远郊景点**：如果某个景点距离其他景点 > 30km，不要选择它
 
 ## 用户需求
 - 目的地: {destination}
@@ -137,62 +142,43 @@ async def planning_node(state: AgentState) -> dict[str, Any]:
 ## 天气
 {json.dumps(weather_info, ensure_ascii=False, indent=2) if weather_info else "暂无"}
 
-## 攻略参考
-{guide_context[:2000] if guide_context else "暂无攻略，请根据常识规划"}
+## 🔥 真实攻略参考（重要！请参考以下真实旅行者的行程推荐）
+{guide_context if guide_context else "暂无攻略，请根据目的地常识规划经典景点"}
 
 ---
 
 请返回纯 JSON（不要 markdown）：
 {{
-    "chat_response": "友好回复（200字），介绍行程亮点",
+    "chat_response": "友好回复（150-200字），简要介绍行程亮点和特色",
     "itinerary": [
         {{
             "day": 0,
             "title": "抵达{destination}",
             "activities": [
-                {{
-                    "poi_id": "arrival_hub",
-                    "time": "14:00",
-                    "title": "抵达{destination}",
-                    "type": "transport",
-                    "desc": "根据航班/高铁抵达"
-                }},
-                {{
-                    "poi_id": "HOTEL_ID_FROM_POOL",
-                    "time": "16:00",
-                    "title": "入住酒店",
-                    "type": "hotel",
-                    "desc": "办理入住"
-                }}
+                {{"poi_id": "arrival_hub", "time": "14:00", "title": "抵达{destination}", "type": "transport", "desc": "办理入住休整"}},
+                {{"poi_id": "RESTAURANT_ID", "time": "18:00", "title": "晚餐", "type": "meal", "desc": "品尝当地特色"}}
             ],
-            "accommodation": {{
-                "poi_id": "HOTEL_ID_FROM_POOL",
-                "name": "酒店名",
-                "price": "¥300/晚",
-                "reason": "靠近明日行程起点"
-            }}
+            "accommodation": {{"poi_id": "HOTEL_ID", "name": "酒店名", "price": "¥300/晚", "reason": "位置便利"}}
         }},
         {{
             "day": 1,
-            "title": "Day 1 主题",
+            "title": "Day 1 主题（XX区游玩）",
             "activities": [
-                {{
-                    "poi_id": "ATTRACTION_ID_1",
-                    "time": "09:00",
-                    "title": "景点1名称",
-                    "type": "attraction",
-                    "desc": "游玩描述"
-                }}
+                {{"poi_id": "ATTRACTION_1", "time": "09:00", "title": "上午景点", "type": "attraction", "desc": "游玩重点"}},
+                {{"poi_id": "RESTAURANT_ID", "time": "12:00", "title": "午餐", "type": "meal", "desc": "休息用餐"}},
+                {{"poi_id": "ATTRACTION_2", "time": "14:00", "title": "下午景点", "type": "attraction", "desc": "游玩重点"}},
+                {{"poi_id": "RESTAURANT_ID", "time": "18:00", "title": "晚餐", "type": "meal", "desc": "当地美食"}}
             ],
-            "accommodation": {{...}}
+            "accommodation": {{"poi_id": "HOTEL_ID", "name": "酒店名", "price": "¥300/晚", "reason": "靠近明日景点"}}
         }}
     ]
 }}
 
-⚠️ 重要：
-- 每个活动的 poi_id 必须是 POI 池中存在的 ID
-- 午餐/晚餐使用附近餐厅的 poi_id
-- 如果 POI 池中没有合适的，可以用 "generic_meal" 或 "generic_rest" 表示通用活动
+⚠️ 必须遵守：
+- 每天必须有午餐（12:00）和晚餐（18:00）两个 meal 类型活动
+- 从 POI 池选择餐厅的 poi_id，如果池中没有合适的，使用 "generic_lunch" 或 "generic_dinner"
+- 抵达日（Day 0）只安排入住和晚餐，不安排景点
+- 每天的景点必须在同一区域（参考距离表）
 
 只返回 JSON！"""
 

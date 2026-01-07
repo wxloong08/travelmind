@@ -25,11 +25,12 @@ async def respond_node(state: AgentState) -> dict[str, Any]:
     """
     logger.info("Node: respond")
 
-    # 如果有旅游计划，直接返回
+    # 如果有旅游计划，返回它（确保 travel_graph 能提取 chat_response）
     travel_plan = state.get("travel_plan")
     if travel_plan:
-        logger.info("Returning existing travel plan")
+        logger.info("Returning existing travel plan", has_chat_response=bool(travel_plan.get("chat_response")))
         return {
+            "travel_plan": travel_plan,  # 必须返回，否则 travel_graph 无法提取 chat_response
             "should_end": True,
             "planning_phase": PlanningPhase.COMPLETE.value,
         }

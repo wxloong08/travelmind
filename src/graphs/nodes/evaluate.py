@@ -133,7 +133,22 @@ async def rule_check_node(state: AgentState) -> dict[str, Any]:
             ],
         }
         
-        # 距离违规直接触发反思
+        # 检查反思次数，防止无限循环
+        reflection_count = state.get("reflection_count", 0)
+        MAX_REFLECTIONS = 2
+        
+        if reflection_count >= MAX_REFLECTIONS:
+            logger.warning(
+                "Max reflections reached despite violations, forcing pass to llm_score",
+                violations=len(violations),
+                reflection_count=reflection_count,
+            )
+            return {
+                "rule_check_result": rule_check_result,
+                "next_action": "llm_score",  # 跳过反思，直接评分
+            }
+        
+        # 距离违规触发反思
         return {
             "rule_check_result": rule_check_result,
             "reflect_reason": "rule_violation",

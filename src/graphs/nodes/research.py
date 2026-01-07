@@ -301,6 +301,39 @@ async def _get_transport_hub(destination: str) -> EnhancedPOI | None:
     return None
 
 
+async def _search_travel_guides(destination: str, days: int = 3) -> str:
+    """搜索真实的旅游攻略作为规划参考"""
+    try:
+        from src.tools.search import get_bocha_client
+        
+        client = get_bocha_client()
+        
+        # 搜索攻略
+        query = f"{destination}{days}天旅游攻略 行程推荐 必去景点"
+        results, _ = await client.search(query, count=5, freshness="month")
+        
+        if not results:
+            logger.warning("No travel guides found", destination=destination)
+            return ""
+        
+        # 提取攻略内容摘要
+        guide_texts = []
+        for r in results[:3]:
+            title = r.title
+            snippet = r.snippet
+            source = r.source or "未知来源"
+            guide_texts.append(f"【{title}】({source}): {snippet}")
+        
+        guide_context = "\n".join(guide_texts)
+        logger.info("Travel guides fetched", destination=destination, count=len(results))
+        
+        return guide_context
+        
+    except Exception as e:
+        logger.warning("Guide search failed", error=str(e), destination=destination)
+        return ""
+
+
 async def _get_weather(destination: str) -> dict | None:
     """获取天气信息"""
     try:
@@ -372,7 +405,10 @@ async def research_node(state: AgentState) -> dict[str, Any]:
         # 1. 先获取天气（天气 API 不影响 POI 搜索的 QPS）
         weather_info = await _get_weather(destination)
         
-        # 2. 串行获取 POI，每次调用之间会有内置延迟
+        # 2. 搜索真实旅游攻略作为规划参考（使用独立的 Bocha API）
+        guide_context = await _search_travel_guides(destination, days)
+        
+        # 3. 串行获取 POI，每次调用之间会有内置延迟
         attractions = await _search_attractions(destination, count=10)  # 减少数量
         hotels = await _search_hotels(destination, budget_level, count=5)  # 减少数量
         restaurants = await _search_restaurants(destination, count=5)  # 减少数量
@@ -412,6 +448,7 @@ async def research_node(state: AgentState) -> dict[str, Any]:
         # 更新 travel_preference
         travel_pref["days"] = days
         travel_pref["budget_level"] = budget_level
+        travel_pref["guide_context"] = guide_context  # 攻略参考
         updates["travel_preference"] = travel_pref
 
         updates["planning_phase"] = PlanningPhase.PLANNING.value

@@ -160,6 +160,7 @@ class AgentState(TypedDict):
     # 评估闭环支持
     evaluation: dict[str, Any] | None  # LLM 评估结果
     evaluation_count: int  # 评估迭代次数
+    reflection_count: int  # 反思迭代次数（防止无限循环）
     route_enriched: bool  # 路线是否已增强
 
     # 规则检查支持（混合架构）
@@ -198,6 +199,7 @@ def create_initial_state(session_id: str | None = None) -> AgentState:
         previous_itinerary=None,
         evaluation=None,
         evaluation_count=0,
+        reflection_count=0,
         route_enriched=False,
         rule_check_result=None,
         reflect_reason=None,

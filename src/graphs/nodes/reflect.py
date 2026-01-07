@@ -45,10 +45,11 @@ async def reflect_node(state: AgentState) -> dict[str, Any]:
     """
     logger.info("Node: reflect")
     
-    # 检查反思次数限制，防止无限循环
-    travel_plan = state.get("travel_plan", {})
-    current_reflection_count = travel_plan.get("reflection_count", 0) if travel_plan else 0
+    # 使用顶层 state 字段追踪反思次数（更可靠）
+    current_reflection_count = state.get("reflection_count", 0)
     MAX_REFLECTIONS = 2
+    
+    logger.info("Reflection count check", current=current_reflection_count, max=MAX_REFLECTIONS)
     
     if current_reflection_count >= MAX_REFLECTIONS:
         logger.warning(
@@ -59,6 +60,7 @@ async def reflect_node(state: AgentState) -> dict[str, Any]:
         return {"next_action": "respond"}
     
     reflect_reason = state.get("reflect_reason", "llm_score")
+    travel_plan = state.get("travel_plan", {})
     
     if not travel_plan:
         logger.info("No travel_plan to reflect on, continuing to llm_score")
@@ -133,9 +135,10 @@ async def reflect_node(state: AgentState) -> dict[str, Any]:
     except Exception as e:
         logger.error("Reflection failed", error=str(e))
     
-    # 反思后重新验证
+    # 反思后重新验证，同时增加反思计数
     return {
         "travel_plan": travel_plan,
+        "reflection_count": current_reflection_count + 1,  # 顶层 state 字段，确保持久化
         "route_enriched": False,
         "next_action": "route_enrich",
         "updated_at": datetime.now().isoformat(),
