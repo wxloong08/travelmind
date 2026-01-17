@@ -24,6 +24,7 @@ from src.graphs.nodes import (
     rule_check_node,     # 新增：规则检查
     llm_score_node,      # 重命名：LLM 评分（原 evaluate_node）
     reflect_node,
+    supplementary_search_node,  # 新增：补全搜索
 )
 from src.graphs.state import AgentState, create_initial_state
 
@@ -66,6 +67,7 @@ def create_travel_graph() -> StateGraph:
     workflow.add_node("llm_score", llm_score_node)        # 重命名：软质量评分
     workflow.add_node("reflect", reflect_node)
     workflow.add_node("respond", respond_node)
+    workflow.add_node("supplementary_search", supplementary_search_node)
 
     # 设置入口点
     workflow.set_entry_point("understand_intent")
@@ -89,8 +91,18 @@ def create_travel_graph() -> StateGraph:
         },
     )
 
-    # 规划完成后进入路线增强
-    workflow.add_edge("planning", "route_enrich")
+    # 规划后：补全搜索 -> supplementary_search，否则 -> route_enrich
+    workflow.add_conditional_edges(
+        "planning",
+        lambda state: state.get("next_action", "route_enrich"),
+        {
+            "supplementary_search": "supplementary_search",
+            "route_enrich": "route_enrich",
+        },
+    )
+    
+    # 补全搜索后返回规划
+    workflow.add_edge("supplementary_search", "planning")
     
     # 路线增强后进入规则检查（硬约束）
     workflow.add_edge("route_enrich", "rule_check")

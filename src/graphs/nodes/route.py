@@ -92,6 +92,26 @@ async def route_enrichment_node(state: AgentState) -> dict[str, Any]:
                         prev_location["lat"], prev_location["lng"],
                         location["lat"], location["lng"]
                     )
+                    
+                    # [P1 Fix] 泛化地点距离校验
+                    # 如果是餐饮类活动且距离上一地点 > 5km，认为不可信，回退到附近
+                    is_meal = activity.get("type") in ("food", "meal") or \
+                              any(k in activity.get("title", "").lower() for k in ["午餐", "晚餐", "lunch", "dinner"])
+                    
+                    if is_meal and distance > 5.0:
+                        logger.warning(
+                            "Suspicious meal location detected, reverting to nearby",
+                            activity=activity.get("title"),
+                            distance=distance,
+                            prev_loc=prev_location
+                        )
+                        # 回退坐标到上一地点（假设在附近用餐）
+                        activity["location"] = prev_location
+                        location = prev_location  # 更新当前 location 供下一次迭代使用
+                        distance = 0.0
+                        activity["desc"] = activity.get("desc", "") + " (建议在附近就餐)"
+                        activity["is_nearby_fallback"] = True
+                    
                     transport_info = _estimate_transport(distance)
                     activity["transport_from_prev"] = transport_info
                     transport_added += 1

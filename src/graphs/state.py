@@ -167,6 +167,10 @@ class AgentState(TypedDict):
     rule_check_result: dict[str, Any] | None  # 规则检查结果
     reflect_reason: str | None  # 反思来源: "rule_violation" | "llm_score"
 
+    # Fallback 补全搜索支持
+    supplementary_search_count: int  # 补全搜索计数（限制次数）
+    fallback_query: str | None  # 补全搜索的具体问题
+
 
 def create_initial_state(session_id: str | None = None) -> AgentState:
     """创建初始状态"""
@@ -203,4 +207,6 @@ def create_initial_state(session_id: str | None = None) -> AgentState:
         route_enriched=False,
         rule_check_result=None,
         reflect_reason=None,
+        supplementary_search_count=0,
+        fallback_query=None,
     )

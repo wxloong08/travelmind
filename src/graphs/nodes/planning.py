@@ -64,6 +64,18 @@ def _build_distance_snippet(distance_matrix: dict, limit: int = 20) -> str:
     return "\n".join(lines)
 
 
+def _haversine(lat1, lon1, lat2, lon2):
+    """计算两点间距离（km）"""
+    import math
+    R = 6371  # 地球半径
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2)**2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2)**2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return R * c
+
+
 async def planning_node(state: AgentState) -> dict[str, Any]:
     """
     行程规划节点（POI 选择模式）
@@ -145,10 +157,17 @@ async def planning_node(state: AgentState) -> dict[str, Any]:
 ## 🔥 真实攻略参考（重要！请参考以下真实旅行者的行程推荐）
 {guide_context if guide_context else "暂无攻略，请根据目的地常识规划经典景点"}
 
+## ❓ 信息缺失处理
+如果你发现**缺少关键信息**（如某个必去景点的门票价格、开放时间，或者该地区是否有合适的酒店），无法完成规划，请设置 "needs_more_info": true，并在 "missing_info_query" 中提出具体问题。
+系统会去搜索该问题，然后重新回来让你规划。
+**注意**：不要滥用此功能！仅在**缺少该信息就无法规划**时使用。如果只是缺少一些非关键细节（如餐厅具体菜单），请使用常识推断或留空。
+
 ---
 
 请返回纯 JSON（不要 markdown）：
 {{
+    "needs_more_info": false,
+    "missing_info_query": "",
     "chat_response": "友好回复（150-200字），简要介绍行程亮点和特色",
     "itinerary": [
         {{
@@ -228,6 +247,19 @@ async def planning_node(state: AgentState) -> dict[str, Any]:
         from src.graphs.nodes_legacy import planning_node as legacy_planning
         return await legacy_planning(state)
 
+    # ========== Fallback 检查 ==========
+    supplementary_count = state.get("supplementary_search_count", 0)
+    if structured_plan.get("needs_more_info") and supplementary_count < 1:
+        query = structured_plan.get("missing_info_query", "")
+        if query:
+            logger.info("Planning requires more info", query=query)
+            return {
+                "next_action": "supplementary_search", 
+                "fallback_query": query,
+                # 保持 phase 不变（或者退回 RESEARCH？）这里保持 PLAN_GENERATED 之前的状态
+                "planning_phase": PlanningPhase.PLANNING.value 
+            }
+
     # ========== 后处理：验证距离并填充坐标 ==========
     itinerary = structured_plan.get("itinerary", [])
     
@@ -266,6 +298,43 @@ async def planning_node(state: AgentState) -> dict[str, Any]:
                     "luxury": "¥800/晚",
                 }
                 accommodation["price"] = default_prices.get(budget_level, "¥300/晚")
+
+        # 智能酒店重新分配：找到真正离第二天活动最近的酒店
+        # 如果是最后一天，不需要住宿，但这里为了逻辑完整也可以算
+        if accommodation and day.get("activities"):
+            # 获取当天（或第二天）的活动重心
+            # 策略：住宿是为了方便 *第二天* 的行程。
+            # 但简单起见，且为了避免跨天索引越界，我们尽量选靠近 *当天结束地点* 或 *第二天开始地点* 的酒店。
+            # 这里采用：选靠近 *当天最后活动* 的酒店，方便回酒店。或者选靠近 *当天大部分活动* 的位置。
+            
+            # 计算当天活动的重心
+            act_lats = [a["location"]["lat"] for a in day["activities"] if a.get("location")]
+            act_lngs = [a["location"]["lng"] for a in day["activities"] if a.get("location")]
+            
+            if act_lats and act_lngs:
+                center_lat = sum(act_lats) / len(act_lats)
+                center_lng = sum(act_lngs) / len(act_lngs)
+                
+                # 在 POI 池中找酒店
+                hotels = [p for p in poi_pool.values() if p.get("category") == "hotel"]
+                best_hotel = None
+                min_dist = 99999
+                
+                for h in hotels:
+                    if not h.get("lat") or not h.get("lng"):
+                        continue
+                    dist = _haversine(center_lat, center_lng, h["lat"], h["lng"])
+                    if dist < min_dist:
+                        min_dist = dist
+                        best_hotel = h
+                
+                # 如果找到了更近的酒店（且距离差异显著，比如 < 5km vs > 10km），替换它
+                # 但要注意 LLM 可能有自己的理由。这里我们强制优化"地理位置"。
+                if best_hotel:
+                     accommodation["poi_id"] = best_hotel.get("id") # 假设 id 在 values 里，其实 poi_pool key 就是 id
+                     accommodation["name"] = best_hotel.get("name")
+                     accommodation["price"] = f"¥{best_hotel.get('price', 300)}/晚"
+                     accommodation["location"] = {"lat": best_hotel["lat"], "lng": best_hotel["lng"]}
     
     # 本地距离验证
     violations = validate_itinerary_distances(itinerary, max_distance_km=50.0)

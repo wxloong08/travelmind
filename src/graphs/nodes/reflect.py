@@ -116,7 +116,19 @@ async def reflect_node(state: AgentState) -> dict[str, Any]:
                 content = content[4:]
         content = content.strip()
         
-        improved_itinerary = json.loads(content)
+        try:
+            improved_itinerary = json.loads(content)
+        except json.JSONDecodeError:
+            logger.warning("Standard JSON parse failed, trying json_repair")
+            try:
+                import json_repair
+                improved_itinerary = json_repair.repair_json(content, return_objects=True)
+            except ImportError:
+                logger.error("json_repair not installed, cannot recover")
+                raise
+            except Exception as e:
+                logger.error("json_repair failed", error=str(e))
+                raise
         
         if isinstance(improved_itinerary, list) and len(improved_itinerary) > 0:
             travel_plan["itinerary"] = improved_itinerary
@@ -130,8 +142,6 @@ async def reflect_node(state: AgentState) -> dict[str, Any]:
         else:
             logger.warning("Invalid reflection output format, keeping original")
             
-    except json.JSONDecodeError as e:
-        logger.warning("Failed to parse reflection JSON", error=str(e))
     except Exception as e:
         logger.error("Reflection failed", error=str(e))
     
