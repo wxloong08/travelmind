@@ -14,6 +14,7 @@ from src.graphs.nodes.respond import respond_node
 from src.graphs.nodes.route import route_enrichment_node
 from src.graphs.nodes.evaluate import rule_check_node, llm_score_node
 from src.graphs.nodes.reflect import reflect_node
+from src.graphs.nodes.supplementary import supplementary_search_node
 
 # 路由函数
 from src.graphs.nodes.base import (
@@ -32,8 +33,10 @@ __all__ = [
     "rule_check_node",
     "llm_score_node",
     "reflect_node",
+    "supplementary_search_node",
     # 路由
     "route_after_understand",
     "route_after_research",
     "route_after_plan",
 ]
+

@@ -57,6 +57,9 @@ dependencies = [
     
     # Rate Limiting
     "cachetools>=5.3.0",       # 内存缓存工具
+    
+    # JSON Recovery
+    "json_repair>=0.30.0",     # LLM JSON 输出修复
 ]
 
 [project.optional-dependencies]

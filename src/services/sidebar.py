@@ -10,7 +10,10 @@
 import structlog
 from typing import Any
 
+from src.config.constants import PRICE
+
 logger = structlog.get_logger()
+
 
 
 async def get_weather_forecast(city: str) -> dict[str, Any]:
@@ -243,15 +246,15 @@ def calculate_budget_breakdown(itinerary: list, destination: str) -> dict[str, A
             
             # 常见景点门票估算
             if any(kw in title for kw in ["故宫", "颐和园", "长城", "天坛"]):
-                ticket_cost += 60
+                ticket_cost += PRICE.TICKET_MUSEUM
             elif any(kw in title for kw in ["环球影城", "迪士尼", "欢乐谷"]):
-                ticket_cost += 500
+                ticket_cost += PRICE.TICKET_THEME_PARK
             elif any(kw in title for kw in ["博物馆", "纪念馆"]):
-                ticket_cost += 20
+                ticket_cost += PRICE.TICKET_PARK
             elif any(kw in title for kw in ["公园", "广场"]):
-                ticket_cost += 10
+                ticket_cost += PRICE.TICKET_TEMPLE
             else:
-                ticket_cost += 30  # 默认估算
+                ticket_cost += PRICE.TICKET_DEFAULT  # 默认估算
             
             # 交通费用
             transport = activity.get("transport_from_prev", {})
@@ -260,7 +263,7 @@ def calculate_budget_breakdown(itinerary: list, destination: str) -> dict[str, A
                 if "地铁" in method or "公交" in method:
                     transport_cost += 5
                 elif "打车" in method or "出租" in method:
-                    transport_cost += 50
+                    transport_cost += PRICE.TRANSPORT_TAXI_BASE
                 else:
                     transport_cost += 3
     

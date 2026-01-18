@@ -127,8 +127,16 @@ def create_travel_graph() -> StateGraph:
         },
     )
     
-    # 反思后重新进入路线增强（闭环）
-    workflow.add_edge("reflect", "route_enrich")
+    # 反思后：信息缺失→supplementary_search，逻辑问题→route_enrich（闭环）
+    workflow.add_conditional_edges(
+        "reflect",
+        lambda state: state.get("next_action", "route_enrich"),
+        {
+            "supplementary_search": "supplementary_search",
+            "route_enrich": "route_enrich",
+            "respond": "respond",  # 超过最大反思次数时直接响应
+        },
+    )
 
     # 响应后结束
     workflow.add_edge("respond", END)

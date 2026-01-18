@@ -80,14 +80,33 @@ export const useTravelStore = create(
         setIsTyping: (isTyping) => set({ isTyping }),
 
         clearChat: () => set({
+          // 重置聊天消息（欢迎语与初始状态一致）
           messages: [
             {
               role: 'ai',
-              content: '你好！我是 TravelMind，你的智能行程管家。\n\n请告诉我你想去哪里？',
+              content: '你好！我是 TravelMind，你的智能行程管家。\n\n请告诉我你想去哪里，玩几天？\n例如："帮我规划一个北京4天3晚的亲子游，想去环球影城"',
               isStreaming: false,
             },
           ],
           sessionId: null,
+          // 同时重置行程相关状态
+          destination: '',
+          tripStatus: '',
+          weather: { temp: '--', condition: '未知' },
+          itinerary: [],
+          pois: [],
+          budget: null,
+          selectedDayIdx: 0,
+          // 清除 AI 功能缓存
+          cache: {
+            budget: null,
+            packing: null,
+            playlist: null,
+            emergency: null,
+            culture: null,
+            souvenirs: null,
+            photoChallenges: null,
+          },
         }),
 
         // ============================================================

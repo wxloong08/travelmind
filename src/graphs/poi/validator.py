@@ -6,12 +6,13 @@
 
 from typing import Any
 
+from src.config.constants import DISTANCE
 from src.graphs.poi.models import EnhancedPOI, POIDistanceMatrix
 from src.graphs.utils.haversine import haversine
 
 
-# 距离阈值（公里）
-MAX_SAME_DAY_DISTANCE = 50.0  # 同天景点最大距离
+# 距离阈值（公里）- 从常量配置导入
+MAX_SAME_DAY_DISTANCE = DISTANCE.MAX_SAME_DAY_KM
 
 
 def validate_itinerary_distances(
