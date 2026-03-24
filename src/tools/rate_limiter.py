@@ -1,7 +1,10 @@
 """
-高德地图 API 全局限流器
+高德地图 API 并发控制器
 
-QPS=3 限制适用于所有用户的并发请求
+基于 Semaphore 的请求排队，确保并发请求不超过 QPS 限制。
+与 src/cache/rate_limiter.py 互补：
+- cache/rate_limiter: 滑动窗口配额管理（用户级 + 全局，支持 Redis）
+- tools/rate_limiter: 进程内并发排队（Semaphore + 最小间隔）
 """
 
 import asyncio

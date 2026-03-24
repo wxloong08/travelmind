@@ -29,7 +29,7 @@ services:
     environment:
       # 基础配置
       - ENVIRONMENT=${ENVIRONMENT:-development}
-      - DEBUG=${DEBUG:-true}
+      - DEBUG=${DEBUG:-false}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
 
       # LLM 配置【必须】
@@ -52,13 +52,13 @@ services:
       - CHROMA_PERSIST_DIR=/app/data/chroma
 
       # 用户系统 - PostgreSQL
-      - DATABASE_URL=postgresql+asyncpg://travelmind:${POSTGRES_PASSWORD:-travelmind123}@postgres:5432/travelmind
+      - DATABASE_URL=postgresql+asyncpg://travelmind:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/travelmind
 
       # 用户系统 - Redis（可选）
       - REDIS_URL=redis://redis:6379/0
 
       # 用户系统 - JWT
-      - SECRET_KEY=${SECRET_KEY:-change-this-in-production-use-openssl-rand-hex-32}
+      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be set}
       - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
 
       # 用户系统 - 腾讯云短信（可选）
@@ -96,10 +96,10 @@ services:
     container_name: travelmind-postgres
     restart: unless-stopped
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     environment:
       - POSTGRES_USER=travelmind
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-travelmind123}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       - POSTGRES_DB=travelmind
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -120,7 +120,7 @@ services:
     restart: unless-stopped
     command: redis-server --appendonly yes
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     networks:

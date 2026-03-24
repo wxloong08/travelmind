@@ -93,6 +93,23 @@ class LLMConfig:
     SCORE_TEMPERATURE: float = 0.3
 
 
+@dataclass(frozen=True)
+class PlanningConfig:
+    """行程规划配置"""
+    # 每天最大活动时长（分钟）
+    MAX_DAILY_DURATION_MIN: int = 480
+    # 餐饮活动距上一活动的最大距离（公里）
+    MEAL_MAX_DISTANCE_KM: float = 5.0
+    # 坐标偏移量（用于餐饮活动附近模拟，约 80m）
+    MEAL_COORD_OFFSET: float = 0.0008
+    # POI 名称匹配最低相似度
+    POI_SIMILARITY_THRESHOLD: float = 0.5
+    # 最大距离验证阈值（公里）
+    MAX_ITINERARY_DISTANCE_KM: float = 50.0
+    # 默认酒店价格
+    DEFAULT_HOTEL_PRICE: int = 300
+
+
 # 创建单例实例
 HTTP = HttpConfig()
 DISTANCE = DistanceConfig()
@@ -100,3 +117,4 @@ PAGINATION = PaginationConfig()
 PRICE = PriceConfig()
 CONTENT = ContentConfig()
 LLM = LLMConfig()
+PLANNING = PlanningConfig()

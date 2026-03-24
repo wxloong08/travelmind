@@ -427,3 +427,135 @@ class StructuredChatResponse(BaseResponse):
     weather_forecast: dict[str, str] | None = Field(None, description="天气预报")
     itinerary: list[ItineraryDay] = Field(default_factory=list)
     pois: list[POIItem] = Field(default_factory=list, description="推荐酒店/地点")
+
+
+# ============================================================
+# 旅行日记 / 社交文案 / Vlog / 摄影指导 / 海报
+# ============================================================
+
+
+class DiaryRequest(BaseModel):
+    """日记请求"""
+    destination: str
+    day: int
+    day_title: str
+    activities: list[str]
+
+
+class DiaryResponse(BaseResponse):
+    """日记响应"""
+    text: str
+
+
+class SocialCaptionsRequest(BaseModel):
+    """发圈文案请求"""
+    destination: str
+    place_name: str
+
+
+class CaptionStyle(BaseModel):
+    """文案风格"""
+    name: str
+    text: str
+
+
+class SocialCaptionsResponse(BaseResponse):
+    """发圈文案响应"""
+    styles: list[CaptionStyle]
+
+
+class VlogRequest(BaseModel):
+    """Vlog 脚本请求"""
+    destination: str
+    day: int
+    day_title: str
+    activities: list[str]
+
+
+class VlogShot(BaseModel):
+    """Vlog 镜头"""
+    action: str
+    angle: str
+    duration: str
+    audio: str
+
+
+class VlogResponse(BaseResponse):
+    """Vlog 脚本响应"""
+    title: str
+    shots: list[VlogShot]
+    bgm: str
+
+
+class PhotoGuideRequest(BaseModel):
+    """摄影指导请求"""
+    destination: str
+    place_name: str
+
+
+class PhotoGuideResponse(BaseResponse):
+    """摄影指导响应"""
+    best_time: str
+    best_angle: str
+    composition_tip: str
+    gear_tip: str
+    avoid: str
+
+
+class PosterRequest(BaseModel):
+    """海报数据请求"""
+    destination: str
+    days: int
+    activities: list[str] | None = None
+
+
+class PosterResponse(BaseResponse):
+    """海报数据响应"""
+    destination: str
+    days: str
+    highlights: list[str]
+    budget: str
+
+
+class PosterImageRequest(BaseModel):
+    """海报图片生成请求"""
+    destination: str
+    days: int
+    nights: int
+    budget: str = ""
+    highlights: list[str] = []
+    travel_style: str = ""
+    background_url: str = ""
+    image_source: str = ""
+
+
+# ============================================================
+# 侧边栏
+# ============================================================
+
+
+class WeatherForecastResponse(BaseResponse):
+    """天气预报响应"""
+    city: str
+    forecasts: list[dict[str, Any]]
+
+
+class LocalNewsResponse(BaseResponse):
+    """当地资讯响应"""
+    city: str
+    news: list[dict[str, Any]]
+
+
+class BudgetBreakdownRequest(BaseModel):
+    """预算计算请求"""
+    destination: str
+    itinerary: list[dict[str, Any]]
+
+
+class BudgetBreakdownResponse(BaseResponse):
+    """预算计算响应"""
+    breakdown: dict[str, int]
+    total_estimated: int
+    per_day: int
+    nights: int
+    days: int

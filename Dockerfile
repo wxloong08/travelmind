@@ -89,5 +89,8 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app
 
-# 启动命令（以 root 运行，Playwright 需要）
+# NOTE: Playwright requires root to launch Chromium in Docker.
+# If Playwright is not needed, uncomment the following to run as non-root:
+# RUN useradd -m appuser && chown -R appuser:appuser /app
+# USER appuser
 CMD ["python", "-m", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]

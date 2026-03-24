@@ -7,10 +7,16 @@ __pycache__/
 venv/
 .venv/
 env/
-.env
 *.egg-info/
 dist/
 build/
+
+# Environment files (NEVER commit secrets)
+.env
+.env.*
+!.env.example
+frontend/.env
+!frontend/.env.example
 
 # Node.js
 node_modules/
@@ -40,6 +46,9 @@ Thumbs.db
 *.bak
 *.tmp
 .cache/
+
+# Local test files
+本地测试账号.txt
 
 # Local fix documentation (not for remote)
 fix_v2/

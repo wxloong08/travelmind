@@ -31,6 +31,7 @@ import {
   Plus,
 } from 'lucide-react';
 
+import ErrorBoundary from './components/ui/ErrorBoundary';
 import useTravelStore from './store/useTravelStore';
 import useAuthStore from './store/useAuthStore';
 import { useStreamChat, useAiFeature, useTripRestore } from './hooks';
@@ -572,4 +573,12 @@ function IconButton({ icon: Icon, color, onClick }) {
   );
 }
 
-export default App;
+function AppWithErrorBoundary() {
+  return (
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
+  );
+}
+
+export default AppWithErrorBoundary;
